@@ -14,7 +14,8 @@
     if (!isTarget) return;
 
     var FLOOR = 500; // 데이터 글리치/저값 노출 방지
-    var COUNT_URL = 'https://cdn.jsdelivr.net/gh/PassionateCoLtd/fitable-storefront@main/wpb_count.json';
+    // 카운트는 raw github(브랜치 HEAD·max-age 300s·ACAO:*)에서 — jsDelivr @main은 ref 캐시 ~12h라 부적합.
+    var COUNT_URL = 'https://raw.githubusercontent.com/PassionateCoLtd/fitable-storefront/main/wpb_count.json';
 
     function build(total) {
       var n = Number(total).toLocaleString('en-US');
