@@ -23,6 +23,8 @@
   ev('ab01_pdp_view', {});
 
   // 2) 클릭: 구매하기 / 장바구니 / 탭
+  //  GA4 Data API는 미등록 파라미터를 못 읽으므로 탭/깊이는 '이벤트 이름'으로 분리.
+  var TABMAP = { prdDetail: 'detail', prdReview: 'review', prdQna: 'qna', prdGuide: 'guide' };
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!t || !t.closest) return;
@@ -36,7 +38,9 @@
     }
     var tab = t.closest('a[data-link^="#prd"]');
     if (tab) {
-      ev('ab01_pdp_tab_click', { ab01_tab: (tab.getAttribute('data-link') || '').replace('#prd', '') });
+      var key = (tab.getAttribute('data-link') || '').replace('#', '');
+      var slug = TABMAP[key] || key.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'etc';
+      ev('ab01_pdp_tab_' + slug, {});
     }
   }, true);
 
@@ -60,7 +64,7 @@
     if (max <= 0) return;
     var pct = Math.round(top / max * 100);
     [25, 50, 75, 100].forEach(function (m) {
-      if (!hit[m] && pct >= m) { hit[m] = 1; ev('ab01_pdp_scroll', { ab01_depth: m }); }
+      if (!hit[m] && pct >= m) { hit[m] = 1; ev('ab01_pdp_scroll_' + m, {}); }
     });
   }
   var ticking = false;
