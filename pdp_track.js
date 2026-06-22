@@ -4,8 +4,10 @@
    미등록 파라미터를 못 읽으므로 '이벤트 이름'으로 분리(<pfx>_pdp_scroll_25 등).
    롤백=ScriptTag DELETE. 상품 추가=CONFIG에 product_no:프리픽스 한 줄 추가 후 재배포. */
 (function () {
-  var CONFIG = { '69': 'ab01', '101': 'smp01' };   // product_no → 이벤트 프리픽스
-  var mm = location.search.match(/[?&]product_no=(\d+)/);
+  var CONFIG = { '69': 'ab01', '101': 'smp01', '126': 'wpb01' };   // product_no → 이벤트 프리픽스
+  // 상품번호: 쿼리(?product_no=) 우선, 없으면 SEO 경로(/product/<슬러그>/<no>/)에서 추출
+  var mm = location.search.match(/[?&]product_no=(\d+)/) ||
+           location.pathname.match(/\/product\/[^\/]+\/(\d+)(?:\/|$)/);
   var pno = mm && mm[1];
   var PFX = pno && CONFIG[pno];
   if (!PFX) return;
