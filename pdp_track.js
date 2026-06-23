@@ -90,5 +90,45 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchReview);
   else watchReview();
+
+  // 6) 섹션별 관심(도달+체류) — WPB(126) 본문은 lazy 주입이라 MutationObserver로 신규 이미지 포착.
+  //    섹션 = 본문 이미지 파일명 verNNNN/<섹션>-<순번>의 앞자리(1~6). view=도달, dwell=섹션이 3초+ 연속 노출(실관심).
+  if (PFX === 'wpb01' && 'IntersectionObserver' in window) {
+    try {
+      var secSeen = {}, secDwell = {}, secTimer = {}, secVis = {};
+      var secOf = function (im) {
+        var s = im.currentSrc || im.src || (im.getAttribute && im.getAttribute('ec-data-src')) || '';
+        var m = s.match(/ver\d+\/(\d+)-/); return m ? m[1] : null;
+      };
+      var fireDwell = function (s) { return function () { if (!secDwell[s]) { secDwell[s] = 1; ev('sec' + s + '_dwell'); } }; };
+      var secIO = new IntersectionObserver(function (es) {
+        for (var i = 0; i < es.length; i++) {
+          var en = es[i], sec = en.target.__wsec; if (!sec) continue;
+          var prev = secVis[sec] || 0;
+          var now = Math.max(0, prev + (en.isIntersecting ? 1 : -1));
+          secVis[sec] = now;
+          if (en.isIntersecting && !secSeen[sec]) { secSeen[sec] = 1; ev('sec' + sec + '_view'); }
+          if (prev === 0 && now > 0 && !secDwell[sec] && !secTimer[sec]) {
+            secTimer[sec] = setTimeout(fireDwell(sec), 3000);
+          } else if (prev > 0 && now === 0 && secTimer[sec]) {
+            clearTimeout(secTimer[sec]); secTimer[sec] = null;
+          }
+        }
+      }, { threshold: 0.3 });
+      var scanSec = function () {
+        var imgs = document.getElementsByTagName('img');
+        for (var i = 0; i < imgs.length; i++) {
+          var im = imgs[i]; if (im.__wsecObs) continue;
+          var sec = secOf(im); if (!sec) continue;
+          im.__wsec = sec; im.__wsecObs = 1; secIO.observe(im);
+        }
+      };
+      scanSec();
+      var secMO = new MutationObserver(scanSec);
+      secMO.observe(document.body, { childList: true, subtree: true });
+      // 본문 lazy 주입 끝나면 MO 정리(과다 관찰 방지) + 마지막 1회 스캔
+      setTimeout(function () { try { secMO.disconnect(); scanSec(); } catch (e) {} }, 20000);
+    } catch (e) {}
+  }
 })();
 /*ENDPDPTRK*/
