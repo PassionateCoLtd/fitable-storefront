@@ -32,6 +32,15 @@
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!t || !t.closest) return;
+    // WPB(126) 신청 CTA 위치별 클릭 — 무수술 측정. 실클릭(isTrusted)만 집계해 합성클릭 중복 제외
+    // (예: #wpb-member-banner a → wpb-show-manual.click() 프로그램 호출). 셀렉터는 126 LP에만 존재.
+    if (PFX === 'wpb01' && e.isTrusted) {
+      if (t.closest('#wpb-sticky-cta')) { ev('cta_sticky'); return; }
+      if (t.closest('#wpb-submit-btn')) { ev('cta_form_submit'); return; }
+      if (t.closest('#wpb-show-manual') || t.closest('#wpb-member-banner a')) { ev('cta_form_open'); return; }
+      if (t.closest('a[data-ref="pdp_kakao_sync_bottom"]')) { ev('cta_kakao_bottom'); return; }
+      if (t.closest('#wpb-kakao-cta')) { ev('cta_kakao_hero'); return; }
+    }
     if (t.closest('#actionBuy,#actionBuyClone,#actionBuyCloneFixed,#action_buy_btn,.now_buy')) { ev('buy_click'); return; }
     if (t.closest('#actionCart,#actionCartClone')) { ev('cart_click'); return; }
     var tab = t.closest('a[data-link^="#prd"]');
