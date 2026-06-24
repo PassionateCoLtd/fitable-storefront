@@ -97,7 +97,10 @@
     try {
       var secSeen = {}, secDwell = {}, secTimer = {}, secVis = {};
       var secOf = function (im) {
-        var s = im.currentSrc || im.src || (im.getAttribute && im.getAttribute('ec-data-src')) || '';
+        // ★ ec-data-src(진짜 CDN URL)를 먼저 본다. Cafe24 모바일 레이지로딩이 미노출 본문
+        //   이미지의 src를 base64 placeholder로 두고 진짜 URL을 ec-data-src에 보관하기 때문.
+        //   (src 우선이면 하단 섹션이 placeholder에 막혀 집계 누락 → sec1만 잡히던 버그)
+        var s = (im.getAttribute && im.getAttribute('ec-data-src')) || im.currentSrc || im.src || '';
         var m = s.match(/ver\d+\/(\d+)-/); return m ? m[1] : null;
       };
       var fireDwell = function (s) { return function () { if (!secDwell[s]) { secDwell[s] = 1; ev('sec' + s + '_dwell'); } }; };
@@ -125,9 +128,10 @@
       };
       scanSec();
       var secMO = new MutationObserver(scanSec);
-      secMO.observe(document.body, { childList: true, subtree: true });
+      // childList=본문 블록 주입, attributes(src/ec-data-src)=lazy 교체까지 포착(방어적 이중화)
+      secMO.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'ec-data-src'] });
       // 본문 lazy 주입 끝나면 MO 정리(과다 관찰 방지) + 마지막 1회 스캔
-      setTimeout(function () { try { secMO.disconnect(); scanSec(); } catch (e) {} }, 20000);
+      setTimeout(function () { try { secMO.disconnect(); scanSec(); } catch (e) {} }, 30000);
     } catch (e) {}
   }
 })();
