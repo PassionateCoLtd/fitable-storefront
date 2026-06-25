@@ -4,7 +4,17 @@
    미등록 파라미터를 못 읽으므로 '이벤트 이름'으로 분리(<pfx>_pdp_scroll_25 등).
    롤백=ScriptTag DELETE. 상품 추가=CONFIG에 product_no:프리픽스 한 줄 추가 후 재배포. */
 (function () {
-  var CONFIG = { '69': 'ab01', '101': 'smp01', '126': 'wpb01' };   // product_no → 이벤트 프리픽스
+  // product_no → 이벤트 프리픽스. 같은 상품의 중복 리스팅은 같은 프리픽스로 합쳐 상품 단위 퍼널로 본다
+  // (20·69=AB슬라이드 초심자, 100·101=스텝메이트 프로). 상품 추가=한 줄 + pdp_funnel.py PRODUCTS 동기화.
+  var CONFIG = {
+    '69': 'ab01', '20': 'ab01',          // AB슬라이드 초심자(비밀특가 / 일반가)
+    '101': 'smp01', '100': 'smp01',      // 스텝메이트 프로+
+    '126': 'wpb01',                      // 와이드 풀업바 사전예약
+    '30': 'pul01', '44': 'pul02',        // 문틀철봉 / 문틀철봉+풀업밴드 세트
+    '68': 'stm01',                       // 스텝메이트(기본)
+    '41': 'adb01',                       // 무게조절 덤벨
+    '86': 'cd01'                         // 치닝디핑
+  };
   // 상품번호: 쿼리(?product_no=) 우선, 없으면 SEO 경로(/product/<슬러그>/<no>/)에서 추출
   var mm = location.search.match(/[?&]product_no=(\d+)/) ||
            location.pathname.match(/\/product\/[^\/]+\/(\d+)(?:\/|$)/);
