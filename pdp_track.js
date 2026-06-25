@@ -144,5 +144,33 @@
       setTimeout(function () { try { secMO.disconnect(); scanSec(); } catch (e) {} }, 30000);
     } catch (e) {}
   }
+
+  // 7) 화면(뷰포트) 단위 깊이 관심 — 전 상품 공통(이미지 파일명 무관, 순수 위치 기준).
+  //    화면 idx = floor(scrollTop / 뷰포트높이) + 1 (1-base). 도달=그 화면이 뷰에 들어옴(1회),
+  //    체류(dwell)=한 화면에 3초+ 연속 머무름(1회). 깊이는 GA4 커스텀측정기준 pdp_screen(param)로 보내
+  //    이벤트명 폭증(상품×화면)을 피하고 Data API가 화면별로 읽게 한다. WPB 의미섹션(위)과 상호보완.
+  try {
+    var scrSeen = {}, scrDwell = {}, scrCur = null, scrTimer = null;
+    var scrVH = function () { return window.innerHeight || document.documentElement.clientHeight || 760; };
+    var scrTop = function () { return window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0; };
+    var scrNow = function () { return Math.floor(scrTop() / scrVH()) + 1; };
+    var scrOnChange = function () {
+      var idx = scrNow();
+      if (idx === scrCur) return;
+      scrCur = idx;
+      if (!scrSeen[idx]) { scrSeen[idx] = 1; ev('screen_view', { pdp_screen: idx }); }
+      if (scrTimer) { clearTimeout(scrTimer); scrTimer = null; }
+      scrTimer = setTimeout(function () {
+        if (scrCur === idx && !scrDwell[idx]) { scrDwell[idx] = 1; ev('screen_dwell', { pdp_screen: idx }); }
+      }, 3000);
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scrOnChange);
+    else scrOnChange();
+    var scrTick = false;
+    window.addEventListener('scroll', function () {
+      if (scrTick) return; scrTick = true;
+      requestAnimationFrame(function () { scrOnChange(); scrTick = false; });
+    }, { passive: true });
+  } catch (e) {}
 })();
 /*ENDPDPTRK*/
