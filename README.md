@@ -9,6 +9,7 @@
 | 파일 | 역할 |
 |---|---|
 | `pdp_track.js` | **범용 PDP 퍼널 측정(무수술)** — 진입·스크롤깊이·탭·구매/장바구니·옵션·리뷰도달, (126) 섹션 관심·위치별 CTA. GA4 익명 커스텀이벤트. 상품 추가=`CONFIG`에 한 줄 |
+| `fjp_track.js` | **JP(fitablejp.com · Wix) 측정(무수술)** — 진입·스크롤깊이·이미지/섹션/화면 도달·체류(어떤 이미지서 이탈)·모든 클릭·핵심 CTA. GA4 `G-1SCGQRMJYL`(JP property 511369990)로 `jp01_pdp_*`. 전송=dataLayer→GTM(`GTM-W2H92G8X`) 포워딩 태그. 카페24가 아니라 GTM Custom HTML 태그로 주입 |
 | `ab01_pdp_track.js` | (레거시) ab01 전용 트래커 — `pdp_track.js`로 통합됨 |
 | `wpb_social_proof.js` | 상품126 "N명이 기다려요" 사회적 증명 카운터 |
 | `wpb_join_result.js` | 상품126 사전예약 가입완료 픽셀 + CPL |
