@@ -8,14 +8,26 @@
    KR pdp_track.js의 Wix 이식판. 롤백=GTM Custom HTML 태그 pause 또는 이전 SHA 되돌리기. */
 (function () {
   if (window.__fjptrk) return; window.__fjptrk = 1;
+  // 메인 LP(루트)에서만 측정. 로더가 All Pages라 faq/aboutus/stepmill 등에서도 실행되는데,
+  // 거기서 view가 발화하면 퍼널 분모가 사이트 전체 PV로 오염됨(KR CONFIG 게이트 등가).
+  // 다른 상세 페이지 추가 시 이 화이트리스트만 넓히면 됨(단 img_idx는 페이지별 DOM순서라
+  // 페이지를 섞으면 이미지 맵이 혼동 → 페이지 추가 시 페이지 구분 차원 필요).
+  if ((location.pathname.replace(/\/+$/, '') || '/') !== '/') return;
   var PFX = 'jp01';
 
+  // 모든 추적 param 키. 이벤트마다 자기 것만 싣고 나머지는 비운다 — GTM dataLayer는 푸시를
+  // 병합 보존하므로, 안 비우면 직전 이벤트의 click_url/img_idx 등이 다음 이벤트(view/scroll 등)에
+  // 묻어 GA4 커스텀측정기준이 오염됨. GTM DLV(setDefaultValue=false)는 undefined면 param 생략.
+  var PARAM_KEYS = ['img_idx', 'img_label', 'sec_idx', 'sec_label', 'pdp_screen',
+                    'click_text', 'click_url', 'click_id', 'click_label'];
   // dataLayer 단일 경로. params는 최상위 키로 푸시(GTM Data Layer 변수가 읽음).
   function ev(suffix, params) {
     try {
       var name = PFX + '_pdp_' + suffix;
+      var base = {};
+      for (var i = 0; i < PARAM_KEYS.length; i++) base[PARAM_KEYS[i]] = undefined;
       (window.dataLayer = window.dataLayer || []).push(
-        Object.assign({ event: name }, params || {}));
+        Object.assign(base, { event: name }, params || {}));
     } catch (e) {}
   }
 
@@ -174,7 +186,7 @@
     // 핵심 CTA(위치별, 1회) — 사전예약/통知/외부 펀딩/내비
     try {
       if ((el.closest && el.closest('form[aria-label="makuake_OPB1"]')) ||
-          /通知を受け取る|先行登録|事前登録|送信/.test(text)) ctaOnce('cta_register', { click_label: 'register' });
+          /通知を受け取る|先行登録|事前登録/.test(text)) ctaOnce('cta_register', { click_label: 'register' });
       if (/makuake\.com/i.test(href)) ctaOnce('cta_makuake', { click_url: href, click_label: 'makuake' });
       else if (/camp-?fire\.jp/i.test(href)) ctaOnce('cta_campfire', { click_url: href, click_label: 'campfire' });
       else if (href && isOutbound(href)) ev('cta_outbound', { click_url: href, click_label: lab });
