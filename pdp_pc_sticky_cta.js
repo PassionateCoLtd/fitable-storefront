@@ -20,7 +20,8 @@
     var price = priceEl ? priceEl.textContent.trim() : '';
     var og = document.querySelector('meta[property="og:title"]');
     var name = og ? (og.getAttribute('content') || '') : '';
-    name = name.replace(/^\s*\[[^\]]*\]\s*/, '').trim();    // [사전예약] 접두어 제거
+    name = name.replace(/^\s*\[[^\]]*\]\s*/, '')            // [사전예약] 접두어 제거
+               .replace(/\s*-\s*핏에이블\s*$/, '').trim();   // " - 핏에이블" 브랜드 접미어 제거
 
     var bar = document.createElement('div');
     bar.id = 'pc-sticky-cta';
