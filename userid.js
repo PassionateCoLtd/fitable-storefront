@@ -14,7 +14,7 @@
  */
 (function () {
   'use strict';
-  var LOG_ONLY = true; // ★첫 배포는 true(콘솔검증). 라이브 DebugView에서 user_id 부착 확인 후 false로 재커밋+PUT.
+  var LOG_ONLY = false; // ★첫 배포는 true(콘솔검증). 라이브 DebugView에서 user_id 부착 확인 후 false로 재커밋+PUT.
 
   try {
     if (window.__fituid) return; // 재진입/중복 ScriptTag 주입 가드(bfcache 안전, 재해싱 차단)
