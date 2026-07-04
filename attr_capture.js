@@ -61,6 +61,35 @@
       if (!ft) { save(K_FT, cur); ft = cur; }
     }
 
+    /* ── 1.5 유입 클릭ID 박제 (발화 0·localStorage 전용·주문↔터치 서버조인 재료) ── */
+    try {
+      var TTL_CID = 90 * 24 * 3600 * 1000;                 // 90일(채널 어트리뷰션 창에 맞춤. 기존 attr 30일과 독립)
+      var KC_FT = 'fit_ft_click', KC_LT = 'fit_lt_click';
+      var q2; try { q2 = new URLSearchParams(location.search); } catch (e) { q2 = null; }
+      if (q2) {
+        var CIDKEYS = ['gclid', 'gbraid', 'wbraid', 'fbclid', 'ttclid', 'msclkid', 'kclid', 'kakaoclid'];
+        var UTMKEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+        var hitCid = {}, hasCid = false, k2, v2;
+        for (var i2 = 0; i2 < CIDKEYS.length; i2++) { v2 = q2.get(CIDKEYS[i2]); if (v2) { hitCid[CIDKEYS[i2]] = v2.slice(0, 256); hasCid = true; } }
+        var utmSnap = {};
+        for (var j2 = 0; j2 < UTMKEYS.length; j2++) { v2 = q2.get(UTMKEYS[j2]); if (v2) utmSnap[UTMKEYS[j2]] = v2.slice(0, 256); }
+        // 클릭ID가 하나라도 있거나 utm이 있을 때만 기록(내부이동·순수직접은 스킵 → 불필요 쓰기 방지)
+        if (hasCid || Object.keys(utmSnap).length) {
+          var rec = { cid: hitCid, utm: utmSnap, lp: location.pathname, ts: NOW };
+          // last-touch: TTL 유효+동일 내용이면 재쓰기 생략(디덥)
+          var prevLt = null; try { prevLt = JSON.parse(LS.getItem(KC_LT) || 'null'); } catch (e) {}
+          var same = prevLt && JSON.stringify(prevLt.cid) === JSON.stringify(hitCid) &&
+                     JSON.stringify(prevLt.utm) === JSON.stringify(utmSnap);
+          if (!same) { try { LS.setItem(KC_LT, JSON.stringify(rec)); } catch (e) {} }
+          // first-touch: 없거나 만료된 경우에만(write-once within TTL)
+          var prevFt = null; try { prevFt = JSON.parse(LS.getItem(KC_FT) || 'null'); } catch (e) {}
+          if (!(prevFt && prevFt.ts && (NOW - prevFt.ts) < TTL_CID)) {
+            try { LS.setItem(KC_FT, JSON.stringify(rec)); } catch (e) {}
+          }
+        }
+      }
+    } catch (e) { /* 확장 격리 — 실패해도 기존 이벤트 로직(§2~4)에 영향 0 */ }
+
     /* ── 2. 이벤트 전송 ── */
     function attrParams() {
       var o = {};
