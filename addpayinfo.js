@@ -11,15 +11,15 @@
  */
 (function () {
   'use strict';
-  var LOG_ONLY = true; // ★첫 배포는 true(콘솔검증). 셀렉터/단일발화 확인 후 false로 재커밋+PUT.
-
-  if (window.__fitAddPayInfo) return; // 중복 ScriptTag 주입 방어(싱글턴)
-  window.__fitAddPayInfo = 1;
+  var LOG_ONLY = false; // ★첫 배포는 true(콘솔검증). 셀렉터/단일발화 확인 후 false로 재커밋+PUT.
 
   try {
     // ── 경로 가드: 주문서에서만. display_location=ALL이므로 필수 선발 ──
     // ★라이브에서 실제 경로 확정 후 필요 시 정규식 수정(2.7 검증①)
     if (!/\/order\/orderform/i.test(location.pathname)) return;
+
+    if (window.__fitAddPayInfo) return; // 중복 ScriptTag 주입 방어(싱글턴)
+    window.__fitAddPayInfo = 1;
 
     var fired = false; // in-memory: 한 페이지로드 1발 (결제수단 변경/재클릭 방어 = CEO 시나리오 직격)
     var LS = null; try { LS = window.sessionStorage; } catch (e) {}
