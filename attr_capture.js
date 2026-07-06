@@ -4,6 +4,7 @@
  * 이벤트: np_checkout_start / kp_checkout_start / order_attr
  * 파라미터: ft_source/ft_medium/ft_campaign (최초유입), lt_source/lt_medium/lt_campaign (최종유입),
  *          product_no, order_id — 전부 GA4 event-scoped custom dimension 등록됨 (2026-07-02)
+ *          + ft_content/lt_content (utm_content={{ad.name}} 소재 단위, 2026-07-06 등록) — 소재별 취소율/순ROAS용
  * 롤백: ScriptTag DELETE 1콜. 전체 try/catch 격리, 기존 스크립트 무수정.
  */
 (function () {
@@ -17,11 +18,12 @@
 
     /* ── 1. 현재 페이지뷰의 유입 판정 ── */
     function parseAttr() {
-      var p, src = '', med = '', cmp = '', ref = '', refHost = '';
+      var p, src = '', med = '', cmp = '', ct = '', ref = '', refHost = '';
       try { p = new URLSearchParams(location.search); } catch (e) { return null; }
       src = p.get('utm_source') || '';
       med = p.get('utm_medium') || '';
       cmp = p.get('utm_campaign') || '';
+      ct = p.get('utm_content') || '';
       try { ref = document.referrer || ''; refHost = ref ? new URL(ref).hostname : ''; } catch (e) {}
       var internal = refHost && (refHost === location.hostname || refHost.indexOf('fitablekorea') > -1);
       if (!src) {
@@ -40,7 +42,7 @@
       }
       if (!src && !refHost) { src = '(direct)'; med = med || '(none)'; }
       if (!src) return null; // 내부 이동 → 갱신 없음
-      return { s: src, m: med || '(none)', c: cmp, r: refHost, lp: location.pathname, ts: NOW };
+      return { s: src, m: med || '(none)', c: cmp, ct: ct, r: refHost, lp: location.pathname, ts: NOW };
     }
 
     function load(k) {
@@ -93,8 +95,8 @@
     /* ── 2. 이벤트 전송 ── */
     function attrParams() {
       var o = {};
-      if (ft) { o.ft_source = ft.s; o.ft_medium = ft.m; if (ft.c) o.ft_campaign = ft.c; }
-      if (lt) { o.lt_source = lt.s; o.lt_medium = lt.m; if (lt.c) o.lt_campaign = lt.c; }
+      if (ft) { o.ft_source = ft.s; o.ft_medium = ft.m; if (ft.c) o.ft_campaign = ft.c; if (ft.ct) o.ft_content = ft.ct; }
+      if (lt) { o.lt_source = lt.s; o.lt_medium = lt.m; if (lt.c) o.lt_campaign = lt.c; if (lt.ct) o.lt_content = lt.ct; }
       return o;
     }
     function send(name, extra) {
