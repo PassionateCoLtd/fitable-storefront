@@ -3,7 +3,8 @@
    대상: 사전예약 125·126. 스크롤 600px 이후 노출, 클릭 시 옵션/구매 영역으로 부드럽게 스크롤.
    스킨/상품 데이터는 안 건드림. 롤백 = ScriptTag DELETE. 2026-06-30 대표 지시(a안: PC 스티키 CTA).
    v2 (2026-07-02): 가격 표기 제거(기본가 49,900이 티어가와 달라 오인 유발 — CS 리포트),
-   PDP 블랙 밴드(2.5차 카드 톤 #0B0B0D + #93C5FD)와 동일 디자인 언어로 재설계. */
+   PDP 블랙 밴드(2.5차 카드 톤 #0B0B0D + #93C5FD)와 동일 디자인 언어로 재설계.
+   v3 (2026-07-06): 출고 시점 병기(8월 초~중순 — 출고 지연 반영·'몰랐다 취소' 예방). */
 (function () {
   var TARGETS = ['125', '126'];
   function pno() {
@@ -38,7 +39,7 @@
       '<span style="display:flex;align-items:center;gap:7px;font-size:11px;font-weight:600;' +
         'letter-spacing:.14em;color:#8a8f98;">' +
         '<span style="width:6px;height:6px;border-radius:50%;background:#2563EB;flex:none;"></span>' +
-        'PRE-ORDER &middot; 7월 31일까지</span>' +
+        'PRE-ORDER &middot; ~7/31 &middot; 8월 초~중순 출고</span>' +
       '<span style="font-size:16px;font-weight:700;color:#111114;white-space:nowrap;' +
         'overflow:hidden;text-overflow:ellipsis;">' + name + '</span>';
     var btn = document.createElement('a');
