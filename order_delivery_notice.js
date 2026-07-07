@@ -11,6 +11,9 @@
     if (PREVIEW) {
       try { if (window.localStorage.getItem('fit_preview') !== '1') return; } catch (e) { return; }
     }
+    // 자동 만료: 사전예약 종료(7/31 24:00 KST) 후엔 렌더 안 함 — '7/31까지 무료 취소' 문구가 낡기 때문.
+    // ScriptTag 삭제 없이도 8/1 00:00부터 자동 소멸. (본판매 전환 시 상품명 [사전예약] 제거로도 이중 차단)
+    if (Date.now() >= 1785510000000 /* 2026-08-01T00:00:00+09:00 */) return;
     if (!/\/order\/(basket|orderform)/.test(location.pathname)) return;
 
     var FONT = "'Pretendard','Apple SD Gothic Neo','Noto Sans KR',sans-serif";
