@@ -13,8 +13,16 @@
     }
     if (!/\/order\/(basket|orderform)/.test(location.pathname)) return;
 
-    var MSG = '📦 <b style="font-weight:700;">[사전예약]</b> 상품은 <b style="font-weight:700;">8월 초~중순 순차 출고</b>됩니다 &middot; 출고 전 100% 무료 취소';
     var FONT = "'Pretendard','Apple SD Gothic Neo','Noto Sans KR',sans-serif";
+    // 라벨-값 2줄 정렬 · PDP 블랙 배너와 동일 디자인 언어(#0B0B0D + #93C5FD)
+    var ROW = 'display:flex;align-items:baseline;gap:12px;';
+    var LABEL = 'flex:none;width:30px;font-size:10.5px;font-weight:600;letter-spacing:.14em;color:#93C5FD;';
+    var VAL = 'font-size:13px;font-weight:500;color:#F2F3F5;letter-spacing:-0.1px;word-break:keep-all;';
+    var MSG =
+      '<div style="' + ROW + '"><span style="' + LABEL + '">출고</span>' +
+        '<span style="' + VAL + '"><b style="font-weight:700;color:#fff;">8월 초~중순</b> 순차 출고</span></div>' +
+      '<div style="' + ROW + 'margin-top:7px;"><span style="' + LABEL + '">취소</span>' +
+        '<span style="' + VAL + '">7월 31일까지 100% 무료 &middot; <b style="font-weight:700;color:#fff;">8월 1일 이후 불가</b></span></div>';
 
     function build() {
       try {
@@ -25,9 +33,8 @@
         var bar = document.createElement('div');
         bar.id = 'fit-delivery-notice';
         bar.innerHTML = MSG;
-        bar.style.cssText = 'background:#EFF6FF;color:#1D4ED8;font-size:13px;font-weight:500;' +
-          'line-height:1.55;padding:12px 15px;border-radius:10px;margin:10px 12px 4px;' +
-          'word-break:keep-all;font-family:' + FONT + ';';
+        bar.style.cssText = 'background:#0B0B0D;padding:14px 17px;border-radius:12px;' +
+          'margin:10px 12px 4px;line-height:1.5;font-family:' + FONT + ';';
         var host = document.getElementById('contents') ||
                    document.querySelector('.xans-order') || document.body;
         host.insertBefore(bar, host.firstChild);
