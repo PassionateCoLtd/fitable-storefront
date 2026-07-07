@@ -7,7 +7,7 @@
 (function () {
   'use strict';
   try {
-    var PREVIEW = true;
+    var PREVIEW = false;
     if (PREVIEW) {
       try { if (window.localStorage.getItem('fit_preview') !== '1') return; } catch (e) { return; }
     }
