@@ -22,7 +22,7 @@
       '<div style="' + ROW + '"><span style="' + LABEL + '">출고</span>' +
         '<span style="' + VAL + '"><b style="font-weight:700;color:#fff;">8월 초~중순</b> 순차 출고</span></div>' +
       '<div style="' + ROW + 'margin-top:7px;"><span style="' + LABEL + '">취소</span>' +
-        '<span style="' + VAL + '">7/31까지 무료 취소 &middot; <b style="font-weight:700;color:#fff;">8/1부터 불가</b></span></div>';
+        '<span style="' + VAL + '">7/31까지 무료 취소 &middot; <b style="font-weight:700;color:#fff;">8/1부터는 배송 준비로 취소가 불가능해요</b></span></div>';
 
     function build() {
       try {
