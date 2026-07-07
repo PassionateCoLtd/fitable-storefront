@@ -18,11 +18,15 @@
     var ROW = 'display:flex;align-items:baseline;gap:12px;';
     var LABEL = 'flex:none;width:30px;font-size:10.5px;font-weight:600;letter-spacing:.14em;color:#93C5FD;';
     var VAL = 'font-size:13px;font-weight:500;color:#F2F3F5;letter-spacing:-0.1px;word-break:keep-all;';
+    // 모바일 390px에서 메인 줄이 절대 안 꺾이도록: 메인 2줄(12·13자) + 보조 설명 줄(작은 회색)
+    var SUB = 'font-size:11.5px;font-weight:500;color:#8a919c;letter-spacing:-0.1px;word-break:keep-all;';
     var MSG =
       '<div style="' + ROW + '"><span style="' + LABEL + '">출고</span>' +
         '<span style="' + VAL + '"><b style="font-weight:700;color:#fff;">8월 초~중순</b> 순차 출고</span></div>' +
       '<div style="' + ROW + 'margin-top:7px;"><span style="' + LABEL + '">취소</span>' +
-        '<span style="' + VAL + '">7/31까지 무료 취소 &middot; <b style="font-weight:700;color:#fff;">8/1부터는 배송 준비로 취소가 불가능해요</b></span></div>';
+        '<span style="' + VAL + '">7/31까지 무료 취소</span></div>' +
+      '<div style="' + ROW + 'margin-top:4px;"><span style="' + LABEL + '"></span>' +
+        '<span style="' + SUB + '">8/1부터는 배송 준비로 취소가 불가능해요</span></div>';
 
     function build() {
       try {
