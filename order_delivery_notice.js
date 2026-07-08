@@ -29,15 +29,15 @@
         '<span style="' + (sub ? SUB : VAL) + '">' + valHtml + '</span></div>';
     }
     var B = function (s) { return '<b style="font-weight:700;color:#fff;">' + s + '</b>'; };
-    // 옵션 구성별 문구 분기 — '2차 입고'(9월 발송) 옵션은 출고/취소 조건이 다름 (대표 결정 7/8:
-    // 2차 입고분은 발송 전까지 취소 가능. 8/1 컷은 8월 발송분(얼리버드)에만 적용)
+    // 옵션 구성별 문구 분기 — '9월 초 발송분' 옵션은 출고/취소 조건이 다름 (대표 결정 7/8:
+    // 9월 발송분은 발송 전까지 취소 가능. 8/1 컷은 8월 발송분(얼리버드)에만 적용)
     function buildMsg(hasEarly, has2nd) {
       if (hasEarly && has2nd) {   // 혼합 장바구니
-        return row('출고', '얼리버드 ' + B('8월 초~중순') + ' &middot; 2차 입고 ' + B('9월 초')) +
-               row('취소', '얼리버드 7/31까지 &middot; 2차 입고 발송 전까지', 7) +
+        return row('출고', '얼리버드 ' + B('8월 초~중순') + ' &middot; 9월분 ' + B('9월 초')) +
+               row('취소', '얼리버드 7/31까지 &middot; 9월분 발송 전까지', 7) +
                row('', '8/1부터 얼리버드분은 배송 준비로 취소가 불가능해요', 4, true);
       }
-      if (has2nd) {               // 2차 입고만
+      if (has2nd) {               // 9월 초 발송분만
         return row('출고', B('9월 초') + ' 순차 출고') +
                row('취소', '발송 준비 전까지 무료 취소', 7) +
                row('', '9월 발송 준비가 시작되면 취소가 어려워요', 4, true);
@@ -53,7 +53,7 @@
         // 사전예약 상품이 담긴 경우에만
         var txt = (document.body.innerText || '');
         if (txt.indexOf('[사전예약]') === -1) return;
-        var has2nd = txt.indexOf('2차 입고') > -1;
+        var has2nd = txt.indexOf('9월 초 발송분') > -1 || txt.indexOf('2차 입고') > -1;
         var hasEarly = txt.indexOf('얼리버드') > -1;
         var bar = document.createElement('div');
         bar.id = 'fit-delivery-notice';
