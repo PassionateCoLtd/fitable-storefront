@@ -21,15 +21,31 @@
     var ROW = 'display:flex;align-items:baseline;gap:12px;';
     var LABEL = 'flex:none;width:30px;font-size:10.5px;font-weight:600;letter-spacing:.14em;color:#93C5FD;';
     var VAL = 'font-size:13px;font-weight:500;color:#F2F3F5;letter-spacing:-0.1px;word-break:keep-all;';
-    // 모바일 390px에서 메인 줄이 절대 안 꺾이도록: 메인 2줄(12·13자) + 보조 설명 줄(작은 회색)
+    // 모바일 390px에서 메인 줄이 절대 안 꺾이도록: 메인 2줄 짧게 + 보조 설명 줄(작은 회색)
     var SUB = 'font-size:11.5px;font-weight:500;color:#8a919c;letter-spacing:-0.1px;word-break:keep-all;';
-    var MSG =
-      '<div style="' + ROW + '"><span style="' + LABEL + '">출고</span>' +
-        '<span style="' + VAL + '"><b style="font-weight:700;color:#fff;">8월 초~중순</b> 순차 출고</span></div>' +
-      '<div style="' + ROW + 'margin-top:7px;"><span style="' + LABEL + '">취소</span>' +
-        '<span style="' + VAL + '">7/31까지 무료 취소</span></div>' +
-      '<div style="' + ROW + 'margin-top:4px;"><span style="' + LABEL + '"></span>' +
-        '<span style="' + SUB + '">8/1부터는 배송 준비로 취소가 불가능해요</span></div>';
+    function row(label, valHtml, top, sub) {
+      return '<div style="' + ROW + (top ? 'margin-top:' + top + 'px;' : '') + '">' +
+        '<span style="' + LABEL + '">' + label + '</span>' +
+        '<span style="' + (sub ? SUB : VAL) + '">' + valHtml + '</span></div>';
+    }
+    var B = function (s) { return '<b style="font-weight:700;color:#fff;">' + s + '</b>'; };
+    // 옵션 구성별 문구 분기 — '2차 입고'(9월 발송) 옵션은 출고/취소 조건이 다름 (대표 결정 7/8:
+    // 2차 입고분은 발송 전까지 취소 가능. 8/1 컷은 8월 발송분(얼리버드)에만 적용)
+    function buildMsg(hasEarly, has2nd) {
+      if (hasEarly && has2nd) {   // 혼합 장바구니
+        return row('출고', '얼리버드 ' + B('8월 초~중순') + ' &middot; 2차 입고 ' + B('9월 초')) +
+               row('취소', '얼리버드 7/31까지 &middot; 2차 입고 발송 전까지', 7) +
+               row('', '8/1부터 얼리버드분은 배송 준비로 취소가 불가능해요', 4, true);
+      }
+      if (has2nd) {               // 2차 입고만
+        return row('출고', B('9월 초') + ' 순차 출고') +
+               row('취소', '발송 준비 전까지 무료 취소', 7) +
+               row('', '9월 발송 준비가 시작되면 취소가 어려워요', 4, true);
+      }
+      return row('출고', B('8월 초~중순') + ' 순차 출고') +
+             row('취소', '7/31까지 무료 취소', 7) +
+             row('', '8/1부터는 배송 준비로 취소가 불가능해요', 4, true);
+    }
 
     function build() {
       try {
@@ -37,9 +53,11 @@
         // 사전예약 상품이 담긴 경우에만
         var txt = (document.body.innerText || '');
         if (txt.indexOf('[사전예약]') === -1) return;
+        var has2nd = txt.indexOf('2차 입고') > -1;
+        var hasEarly = txt.indexOf('얼리버드') > -1;
         var bar = document.createElement('div');
         bar.id = 'fit-delivery-notice';
-        bar.innerHTML = MSG;
+        bar.innerHTML = buildMsg(hasEarly, has2nd);
         bar.style.cssText = 'background:#0B0B0D;padding:14px 17px;border-radius:12px;' +
           'margin:10px 12px 4px;line-height:1.5;font-family:' + FONT + ';';
         var host = document.getElementById('contents') ||
