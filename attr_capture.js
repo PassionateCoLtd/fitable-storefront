@@ -159,6 +159,22 @@
         try { sent = JSON.parse(LS.getItem(K_OA) || '[]'); } catch (e) {}
         if (sent.indexOf(oid) > -1) return; // 새로고침 중복 방지
         send('order_attr', { order_id: oid });
+        /* ── L2b: 자사 서버 직기록 비콘 (GA4 유실 백업·추정→실측, 2026-07-10) ──
+         * fire-and-forget: 404/서버다운이어도 페이지·GA4 경로 무영향.
+         * text/plain = CORS simple request(프리플라이트 없음). PII 없음. */
+        try {
+          var bp = attrParams();
+          bp.order_id = oid; bp.ts = NOW;
+          var bu = 'https://fitable-dashboard.ngrok.app/api/preorder/order_attr';
+          var bb = JSON.stringify(bp), bok = false;
+          if (navigator.sendBeacon) {
+            try { bok = navigator.sendBeacon(bu, new Blob([bb], { type: 'text/plain' })); } catch (e) {}
+          }
+          if (!bok && window.fetch) {
+            try { fetch(bu, { method: 'POST', body: bb, keepalive: true, mode: 'no-cors',
+                              headers: { 'Content-Type': 'text/plain' } }); } catch (e) {}
+          }
+        } catch (e) { /* 확장 격리 */ }
         sent.push(oid);
         save(K_OA, sent.slice(-20));
       } catch (e) {}
