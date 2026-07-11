@@ -132,6 +132,33 @@
       } catch (e) { /* 확장 격리 */ }
     }
 
+    /* ── 1.7 결제예정 총액 확보 (금액 삼각측량 조인 재료, 2026-07-11) ──
+     * addpayinfo.js의 lastEc()/domTotal()/resolve()를 그대로 이식(중복구현 금지, 검증된 셀렉터 재사용). */
+    function lastEc() {
+      try {
+        var dl = window.dataLayer || [];
+        for (var i = dl.length - 1; i >= 0; i--) {
+          var e = dl[i];
+          if (e && e.ecommerce && e.ecommerce.items) return e.ecommerce;
+        }
+      } catch (e) {}
+      return null;
+    }
+    function domTotal() {
+      try {
+        var el = document.querySelector('#total_order_price, .total_price, [id*="total_price"], .txt-price strong');
+        if (!el) return 0;
+        var n = parseInt((el.textContent || '').replace(/[^0-9]/g, ''), 10);
+        return n > 0 ? n : 0;
+      } catch (e) { return 0; }
+    }
+    function checkoutAmount() {
+      try {
+        var ec = lastEc();
+        return (ec && ec.value) ? ec.value : domTotal();
+      } catch (e) { return 0; }
+    }
+
     /* ── 2. 이벤트 전송 ── */
     function attrParams() {
       var o = {};
@@ -165,6 +192,8 @@
       try {
         var cp = attrParams();
         cp.guid = getGuid(); cp.kind = kind; cp.product_no = pno; cp.ts = t;
+        var amt = checkoutAmount();
+        if (amt > 0) cp.amount = amt;
         beaconPost(DASH + '/api/preorder/checkout_intent', cp);
       } catch (e) { /* 확장 격리 */ }
     }
