@@ -152,10 +152,25 @@
         return n > 0 ? n : 0;
       } catch (e) { return 0; }
     }
+    function selectedOptionTotal() {
+      /* Cafe24 PDP "총 상품 금액"(#totalPrice .total em) = 옵션 선택 후 갱신되는 선택옵션
+       * 실제 총액(수량 반영). WPB처럼 차수별 옵션가가 다르고 기본옵션이 품절인 사전예약
+       * 상품에서, dataLayer view_item의 낡은 기본가(예 49,900=1차 품절)와 실제 선택가
+       * (예 59,900=3차)가 어긋나는 문제 해결(2026-07-11 실측 확인). 미선택시 0원 → 0 반환. */
+      try {
+        var el = document.querySelector('#totalPrice .total em, .totalPrice .total em');
+        if (!el) return 0;
+        var n = parseInt((el.textContent || '').replace(/[^0-9]/g, ''), 10);
+        return n > 0 ? n : 0;
+      } catch (e) { return 0; }
+    }
     function checkoutAmount() {
       try {
-        var ec = lastEc();
-        return (ec && ec.value) ? ec.value : domTotal();
+        var sel = selectedOptionTotal();   // 1순위: 선택 옵션 실제 총액(PDP, 결제될 금액)
+        if (sel > 0) return sel;
+        var ec = lastEc();                 // 2순위: dataLayer ecommerce.value(주문서 경로)
+        if (ec && ec.value) return ec.value;
+        return domTotal();                 // 3순위: 기존 주문서 DOM 폴백
       } catch (e) { return 0; }
     }
 
