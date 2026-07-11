@@ -164,11 +164,21 @@
         return n > 0 ? n : 0;
       } catch (e) { return 0; }
     }
+    function hasProductOption() {
+      /* 옵션 선택자가 존재하는 상품인지(WPB 등). 존재하는데 미선택이면 dataLayer 기본가는
+       * 품절 1차 등 오답일 수 있으므로 amount를 생략(오답 전송 금지)하는 게이트. */
+      try {
+        return !!document.querySelector('select[option_select_element], select[product_option_area], .prd_option select');
+      } catch (e) { return false; }
+    }
     function checkoutAmount() {
       try {
         var sel = selectedOptionTotal();   // 1순위: 선택 옵션 실제 총액(PDP, 결제될 금액)
         if (sel > 0) return sel;
-        var ec = lastEc();                 // 2순위: dataLayer ecommerce.value(주문서 경로)
+        // 옵션상품인데 미선택(총액 0원) → dataLayer 기본가(품절옵션 오답)로 내려가지 말고 생략.
+        // 생략은 항상 안전(amount 없으면 guid/비례배분 폴백). 오답 전송이 오히려 매칭을 망침.
+        if (hasProductOption()) return 0;
+        var ec = lastEc();                 // 무옵션 상품만 dataLayer 신뢰(2순위)
         if (ec && ec.value) return ec.value;
         return domTotal();                 // 3순위: 기존 주문서 DOM 폴백
       } catch (e) { return 0; }
@@ -200,7 +210,10 @@
       var t = Date.now();
       if (t - lastFire < 1200) return; // 디바운스
       lastFire = t;
-      var m = location.search.match(/product_no=(\d+)/);
+      // product_no: 쿼리(?product_no=) 우선, 없으면 SEO 경로(/product/<슬러그>/<no>/)에서 추출
+      // (pdp_track.js와 동일 규칙 — 금액 삼각측량은 product_no가 있어야 조인되므로 커버리지 확보)
+      var m = location.search.match(/[?&]product_no=(\d+)/) ||
+              location.pathname.match(/\/product\/[^\/]+\/(\d+)(?:\/|$)/);
       var pno = m ? m[1] : '';
       send(kind === 'npay' ? 'np_checkout_start' : 'kp_checkout_start', { product_no: pno });
       /* ── 결제 이탈 직전 소재 인텐트 서버 비콘 (2026-07-11) ── */
