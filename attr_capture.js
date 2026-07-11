@@ -5,6 +5,9 @@
  * 파라미터: ft_source/ft_medium/ft_campaign (최초유입), lt_source/lt_medium/lt_campaign (최종유입),
  *          product_no, order_id — 전부 GA4 event-scoped custom dimension 등록됨 (2026-07-02)
  *          + ft_content/lt_content (utm_content={{ad.name}} 소재 단위, 2026-07-06 등록) — 소재별 취소율/순ROAS용
+ * + checkout_start 서버 비콘 + 1st-party 쿠키 guid (2026-07-11): 결제창 이동 직전(원본
+ *   웹뷰, localStorage 생존)에 소재를 서버로 직접 기록해두고, 주문완료 비콘의 guid와 조인해
+ *   인앱결제 왕복 중 localStorage 유실로 추정(proportional)으로 떨어지던 소재매칭을 실측 승격.
  * 롤백: ScriptTag DELETE 1콜. 전체 try/catch 격리, 기존 스크립트 무수정.
  */
 (function () {
@@ -92,6 +95,43 @@
       }
     } catch (e) { /* 확장 격리 — 실패해도 기존 이벤트 로직(§2~4)에 영향 0 */ }
 
+    /* ── 1.6 1st-party 쿠키 guid + 서버 비콘 헬퍼 (checkout_start↔order_result 조인용, 2026-07-11) ── */
+    var K_GUID = 'fit_guid';
+    var DASH = 'https://fitable-dashboard.ngrok.app';
+    function getCookie(name) {
+      try {
+        var m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+        return m ? decodeURIComponent(m[1]) : '';
+      } catch (e) { return ''; }
+    }
+    function setCookie(name, val) {
+      try {
+        document.cookie = name + '=' + encodeURIComponent(val) +
+          '; domain=.fitablekorea.com; path=/; max-age=2592000; SameSite=Lax; Secure';
+      } catch (e) {}
+    }
+    function genGuid() {
+      try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
+      return 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    }
+    function getGuid() {
+      var g = getCookie(K_GUID);
+      if (!g) { g = genGuid(); setCookie(K_GUID, g); }
+      return g;
+    }
+    function beaconPost(url, payload) {
+      try {
+        var bb = JSON.stringify(payload), bok = false;
+        if (navigator.sendBeacon) {
+          try { bok = navigator.sendBeacon(url, new Blob([bb], { type: 'text/plain' })); } catch (e) {}
+        }
+        if (!bok && window.fetch) {
+          try { fetch(url, { method: 'POST', body: bb, keepalive: true, mode: 'no-cors',
+                              headers: { 'Content-Type': 'text/plain' } }); } catch (e) {}
+        }
+      } catch (e) { /* 확장 격리 */ }
+    }
+
     /* ── 2. 이벤트 전송 ── */
     function attrParams() {
       var o = {};
@@ -119,8 +159,14 @@
       if (t - lastFire < 1200) return; // 디바운스
       lastFire = t;
       var m = location.search.match(/product_no=(\d+)/);
-      send(kind === 'npay' ? 'np_checkout_start' : 'kp_checkout_start',
-        { product_no: m ? m[1] : '' });
+      var pno = m ? m[1] : '';
+      send(kind === 'npay' ? 'np_checkout_start' : 'kp_checkout_start', { product_no: pno });
+      /* ── 결제 이탈 직전 소재 인텐트 서버 비콘 (2026-07-11) ── */
+      try {
+        var cp = attrParams();
+        cp.guid = getGuid(); cp.kind = kind; cp.product_no = pno; cp.ts = t;
+        beaconPost(DASH + '/api/preorder/checkout_intent', cp);
+      } catch (e) { /* 확장 격리 */ }
     }
     function bindPay() {
       try {
@@ -161,19 +207,12 @@
         send('order_attr', { order_id: oid });
         /* ── L2b: 자사 서버 직기록 비콘 (GA4 유실 백업·추정→실측, 2026-07-10) ──
          * fire-and-forget: 404/서버다운이어도 페이지·GA4 경로 무영향.
-         * text/plain = CORS simple request(프리플라이트 없음). PII 없음. */
+         * text/plain = CORS simple request(프리플라이트 없음). PII 없음.
+         * guid(2026-07-11): checkout_intent 비콘과 조인해 소재(content) 실측 승격용. */
         try {
           var bp = attrParams();
-          bp.order_id = oid; bp.ts = NOW;
-          var bu = 'https://fitable-dashboard.ngrok.app/api/preorder/order_attr';
-          var bb = JSON.stringify(bp), bok = false;
-          if (navigator.sendBeacon) {
-            try { bok = navigator.sendBeacon(bu, new Blob([bb], { type: 'text/plain' })); } catch (e) {}
-          }
-          if (!bok && window.fetch) {
-            try { fetch(bu, { method: 'POST', body: bb, keepalive: true, mode: 'no-cors',
-                              headers: { 'Content-Type': 'text/plain' } }); } catch (e) {}
-          }
+          bp.order_id = oid; bp.ts = NOW; bp.guid = getGuid();
+          beaconPost(DASH + '/api/preorder/order_attr', bp);
         } catch (e) { /* 확장 격리 */ }
         sent.push(oid);
         save(K_OA, sent.slice(-20));
