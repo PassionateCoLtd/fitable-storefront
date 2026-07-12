@@ -153,12 +153,15 @@
       } catch (e) { return 0; }
     }
     function selectedOptionTotal() {
-      /* Cafe24 PDP "총 상품 금액"(#totalPrice .total em) = 옵션 선택 후 갱신되는 선택옵션
+      /* Cafe24 PDP "총 상품 금액"(#totalPrice .total) = 옵션 선택 후 갱신되는 선택옵션
        * 실제 총액(수량 반영). WPB처럼 차수별 옵션가가 다르고 기본옵션이 품절인 사전예약
        * 상품에서, dataLayer view_item의 낡은 기본가(예 49,900=1차 품절)와 실제 선택가
-       * (예 59,900=3차)가 어긋나는 문제 해결(2026-07-11 실측 확인). 미선택시 0원 → 0 반환. */
+       * (예 59,900=3차)가 어긋나는 문제 해결(2026-07-11 실측 확인). 미선택시 0원 → 0 반환.
+       * ★셀렉터는 .total 컨테이너 텍스트(내부 마크업 무관): PC스킨=<em>, 모바일스킨(skin4)=
+       *   <strong class="price">로 다름 — 'em' 지정 시 모바일 전멸(2026-07-12 실측: 배포후
+       *   18h 비콘 183건 전부 amount 누락, 트래픽 ~100% 모바일). */
       try {
-        var el = document.querySelector('#totalPrice .total em, .totalPrice .total em');
+        var el = document.querySelector('#totalPrice .total, .totalPrice .total');
         if (!el) return 0;
         var n = parseInt((el.textContent || '').replace(/[^0-9]/g, ''), 10);
         return n > 0 ? n : 0;
