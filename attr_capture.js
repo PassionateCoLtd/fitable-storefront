@@ -144,12 +144,22 @@
       } catch (e) {}
       return null;
     }
+    function firstPrice(text) {
+      /* "59,900원", "59,900원(1개)" 등에서 첫 번째 금액만 추출.
+       * ★전체 숫자스트립 금지: 모바일 스킨 .total은 "59,900원(1개)"처럼 수량이 붙어
+       *   순진한 추출 시 599001로 오염됨(2026-07-12 실측: 599001/757002/298001 관측). */
+      try {
+        var m = (text || '').match(/([0-9][0-9,]*)\s*원/);
+        if (!m) return 0;
+        var n = parseInt(m[1].replace(/,/g, ''), 10);
+        return n > 0 ? n : 0;
+      } catch (e) { return 0; }
+    }
     function domTotal() {
       try {
         var el = document.querySelector('#total_order_price, .total_price, [id*="total_price"], .txt-price strong');
         if (!el) return 0;
-        var n = parseInt((el.textContent || '').replace(/[^0-9]/g, ''), 10);
-        return n > 0 ? n : 0;
+        return firstPrice(el.textContent);
       } catch (e) { return 0; }
     }
     function selectedOptionTotal() {
@@ -159,12 +169,11 @@
        * (예 59,900=3차)가 어긋나는 문제 해결(2026-07-11 실측 확인). 미선택시 0원 → 0 반환.
        * ★셀렉터는 .total 컨테이너 텍스트(내부 마크업 무관): PC스킨=<em>, 모바일스킨(skin4)=
        *   <strong class="price">로 다름 — 'em' 지정 시 모바일 전멸(2026-07-12 실측: 배포후
-       *   18h 비콘 183건 전부 amount 누락, 트래픽 ~100% 모바일). */
+       *   18h 비콘 183건 전부 amount 누락, 트래픽 ~100% 모바일). 파싱은 firstPrice(수량표기 방어). */
       try {
         var el = document.querySelector('#totalPrice .total, .totalPrice .total');
         if (!el) return 0;
-        var n = parseInt((el.textContent || '').replace(/[^0-9]/g, ''), 10);
-        return n > 0 ? n : 0;
+        return firstPrice(el.textContent);
       } catch (e) { return 0; }
     }
     function hasProductOption() {
