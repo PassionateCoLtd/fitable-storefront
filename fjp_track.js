@@ -210,4 +210,81 @@
     } catch (err) {}
   }, true);
 })();
+
+// ── 8) 마쿠아케 리드 소재 어트리뷰션 비콘 (2026-07-13) ──
+//   목적: '어떤 광고소재(utm_content)로 온 유저가 실제 리드(폼제출)까지 갔나'를 first-party로 복원.
+//   그라운드트루스=Wix Form Submissions API. 여기선 이메일해시→소재 매핑만 쏘고, 서버 리컨실이
+//   Wix 실제 제출과 '이메일 exact 조인'해야 리드로 승격(오탐 비콘은 Wix에 없으면 자동 폐기).
+//   T0 실측 반영: wixEmbedsAPI.getVisitorId 미노출·svSession 없음 → 이메일 단독 조인.
+//   native submit 이벤트 불신뢰(GA4 form_submit=0 실증) → '通知を受け取る 클릭 + 이메일유효'를 트리거.
+//   전 구간 try/catch·기존 §1~7 무수정. 롤백=이 블록 삭제 후 재배포.
+(function () {
+  var LS, CFT = 'fit_creative', CFB = 'fit_fbclid', CSENT = 'fit_jp_lead_sent';
+  var BEACON = 'https://fitable-dashboard.ngrok.app/api/preorder/jp_lead_attr';
+  var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  try { LS = window.localStorage; } catch (e) { return; }
+  // (a) 소재 영속화(last-touch): URL에 utm_content 있으면 최신값으로 갱신(전환 귀속=마지막 클릭광고).
+  //     내부이동으로 파라미터 유실돼도 localStorage가 유지 → 제출시 마지막 광고소재 보존.
+  try {
+    var q = new URLSearchParams(location.search);
+    var ct = q.get('utm_content'), fb = q.get('fbclid');
+    if (ct) LS.setItem(CFT, ct.slice(0, 120));
+    if (fb) LS.setItem(CFB, fb.slice(0, 256));
+  } catch (e) {}
+  function g(k) { try { return LS.getItem(k) || ''; } catch (e) { return ''; } }
+  function normEmail(v) { return (v || '').trim().toLowerCase(); }
+  function emailFromForm(f) {
+    try { var el = f && f.querySelector('input[type="email"]'); var v = normEmail(el && el.value); return EMAIL_RE.test(v) ? v : ''; }
+    catch (e) { return ''; }
+  }
+  function activeForm() {
+    try {
+      var fs = document.querySelectorAll('form[aria-label="makuake_OPB1"]'), fallback = null;
+      for (var i = 0; i < fs.length; i++) {
+        if (!fs[i].querySelector('input[type="email"]')) continue;
+        fallback = fallback || fs[i];
+        if (fs[i].offsetParent !== null) return fs[i];   // 데스크탑/모바일 2폼 중 '화면에 보이는' 폼 우선
+      }
+      return fallback;
+    } catch (e) {}
+    return null;
+  }
+  function sha256(s) {
+    try {
+      if (!(window.crypto && crypto.subtle)) return Promise.resolve('');
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)).then(function (h) {
+        return Array.prototype.map.call(new Uint8Array(h), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+      });
+    } catch (e) { return Promise.resolve(''); }
+  }
+  function sent() { try { return JSON.parse(LS.getItem(CSENT) || '[]'); } catch (e) { return []; } }
+  function markSent(k) {
+    try { var a = sent(); if (a.indexOf(k) > -1) return false; a.push(k); LS.setItem(CSENT, JSON.stringify(a.slice(-30))); return true; }
+    catch (e) { return true; }
+  }
+  function fire(emailHash, variant) {
+    if (!emailHash) return;
+    var creative = g(CFT), key = emailHash + '|' + creative;
+    if (sent().indexOf(key) > -1) return;                   // 이미 전송됨(2폼 중복·재클릭 dedup)
+    var payload = { email_sha256: emailHash, visitor_id: '', creative: creative, fbclid: g(CFB),
+      confirmed: 1, form_variant: variant || '', ts: Date.now(), page: location.pathname };
+    var body = JSON.stringify(payload), ok = false;
+    try { if (navigator.sendBeacon) ok = navigator.sendBeacon(BEACON, new Blob([body], { type: 'text/plain' })); } catch (e) {}
+    if (!ok && window.fetch) { try { fetch(BEACON, { method: 'POST', body: body, keepalive: true, mode: 'no-cors', headers: { 'Content-Type': 'text/plain' } }); ok = true; } catch (e) {} }
+    if (ok) markSent(key);                                  // 전송 성공시에만 dedup 기록 → 실패시 재클릭 재전송
+  }
+  // (b) 트리거: '通知を受け取る' 클릭 + 이메일 유효 → 비콘. Wix 조인이 최종 진실 게이트.
+  document.addEventListener('click', function (e) {
+    if (!e.isTrusted) return;
+    var t = e.target; if (!t || !t.closest) return;
+    var btn = t.closest('button,[role="button"],input[type="submit"],.wixui-button'); if (!btn) return;
+    var txt = (btn.textContent || btn.getAttribute('aria-label') || '');
+    if (!/通知を受け取る|先行登録|事前登録/.test(txt)) return;
+    var f = (btn.closest && btn.closest('form[aria-label="makuake_OPB1"]')) || activeForm();
+    var email = emailFromForm(f);
+    if (!email) return;
+    var variant = (window.innerWidth <= 750) ? 'mobile' : 'desktop';
+    sha256(email).then(function (h) { fire(h, variant); });
+  }, true);
+})();
 /*ENDFJPTRK*/
