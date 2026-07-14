@@ -225,11 +225,41 @@
   try { LS = window.localStorage; } catch (e) { return; }
   // (a) 소재 영속화(last-touch): URL에 utm_content 있으면 최신값으로 갱신(전환 귀속=마지막 클릭광고).
   //     내부이동으로 파라미터 유실돼도 localStorage가 유지 → 제출시 마지막 광고소재 보존.
+  //     ★유입소스 상세(2026-07-14): 전체 UTM·클릭ID·referrer 분류까지 잡아 '오가닉/직접'의 진짜 경로 규명.
+  //     referrer 원문 저장 안 함(PII/타사쿼리 방지) — hostname 분류 라벨만.
+  function refClass() {
+    try {
+      var r = document.referrer; if (!r) return 'direct';
+      var h = new URL(r).hostname.replace(/^www\./, '');
+      var self = (location.hostname || '').replace(/^www\./, '');
+      if (self && h === self) return '';                 // 내부이동 → 기존값 보존(덮어쓰기 안 함)
+      if (/(^|\.)google\./.test(h)) return 'google';
+      if (/(^|\.)yahoo\./.test(h) || /search\.yahoo/.test(h)) return 'yahoo';
+      if (/instagram|ig\.me/.test(h)) return 'instagram';
+      if (/facebook|(^|\.)fb\.|fb\.me/.test(h)) return 'facebook';
+      if (/makuake/.test(h)) return 'makuake';
+      if (/t\.co|twitter|x\.com/.test(h)) return 'twitter';
+      if (/bing\./.test(h)) return 'bing';
+      if (/line\.me|lin\.ee/.test(h)) return 'line';
+      if (/tiktok/.test(h)) return 'tiktok';
+      return 'other:' + h.slice(0, 40);
+    } catch (e) { return ''; }
+  }
   try {
     var q = new URLSearchParams(location.search);
     var ct = q.get('utm_content'), fb = q.get('fbclid');
     if (ct) LS.setItem(CFT, ct.slice(0, 120));
     if (fb) LS.setItem(CFB, fb.slice(0, 256));
+    // 전체 UTM + gclid(last-touch)
+    var UM = { fit_us: 'utm_source', fit_um: 'utm_medium', fit_uc: 'utm_campaign', fit_ut: 'utm_term', fit_gc: 'gclid' };
+    for (var mk in UM) { var mv = q.get(UM[mk]); if (mv) LS.setItem(mk, mv.slice(0, 120)); }
+    // 기타 매체 클릭ID(야후JP yclid 등) 묶음
+    var CX = ['msclkid', 'ttclid', 'yclid', 'li_fat_id'], ext = [];
+    for (var ci = 0; ci < CX.length; ci++) { var cv = q.get(CX[ci]); if (cv) ext.push(CX[ci] + ':' + cv.slice(0, 60)); }
+    if (ext.length) LS.setItem('fit_cx', ext.join('|').slice(0, 120));
+    // referrer 분류: 외부 referrer일 때만 갱신(내부이동 ''는 덮어쓰기 안 함). ft=최초 1회.
+    var rc = refClass();
+    if (rc) { LS.setItem('fit_rc', rc); if (!LS.getItem('fit_ftrc')) LS.setItem('fit_ftrc', rc); }
   } catch (e) {}
   function g(k) { try { return LS.getItem(k) || ''; } catch (e) { return ''; } }
   function normEmail(v) { return (v || '').trim().toLowerCase(); }
@@ -267,7 +297,9 @@
     var creative = g(CFT), key = emailHash + '|' + creative;
     if (sent().indexOf(key) > -1) return;                   // 이미 전송됨(2폼 중복·재클릭 dedup)
     var payload = { email_sha256: emailHash, visitor_id: '', creative: creative, fbclid: g(CFB),
-      confirmed: 1, form_variant: variant || '', ts: Date.now(), page: location.pathname };
+      confirmed: 1, form_variant: variant || '', ts: Date.now(), page: location.pathname,
+      utm_source: g('fit_us'), utm_medium: g('fit_um'), utm_campaign: g('fit_uc'), utm_term: g('fit_ut'),
+      gclid: g('fit_gc'), click_ext: g('fit_cx'), ref_class: g('fit_rc'), ft_ref_class: g('fit_ftrc') };
     var body = JSON.stringify(payload), ok = false;
     try { if (navigator.sendBeacon) ok = navigator.sendBeacon(BEACON, new Blob([body], { type: 'text/plain' })); } catch (e) {}
     if (!ok && window.fetch) { try { fetch(BEACON, { method: 'POST', body: body, keepalive: true, mode: 'no-cors', headers: { 'Content-Type': 'text/plain' } }); ok = true; } catch (e) {} }
@@ -285,6 +317,17 @@
     if (!email) return;
     var variant = (window.innerWidth <= 750) ? 'mobile' : 'desktop';
     sha256(email).then(function (h) { fire(h, variant); });
+  }, true);
+  // (c) 추적실패 완화(2026-07-14): Enter 제출·click 트리거 미스 대비 submit 이벤트도 fire.
+  //     fire()가 emailHash+creative로 dedup하므로 click과 겹쳐도 이중전송 없음. (Wix가 submit을
+  //     가로채면 안 뜰 수 있어 완전 제로화는 아님 — 골드스탠다드는 Wix hidden field, 별건.)
+  document.addEventListener('submit', function (e) {
+    try {
+      var f = e.target; if (!f || !f.getAttribute || f.getAttribute('aria-label') !== 'makuake_OPB1') return;
+      var email = emailFromForm(f); if (!email) return;
+      var variant = (window.innerWidth <= 750) ? 'mobile' : 'desktop';
+      sha256(email).then(function (h) { fire(h, variant + '_sbmt'); });
+    } catch (err) {}
   }, true);
 })();
 /*ENDFJPTRK*/
