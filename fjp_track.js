@@ -257,9 +257,16 @@
     var CX = ['msclkid', 'ttclid', 'yclid', 'li_fat_id'], ext = [];
     for (var ci = 0; ci < CX.length; ci++) { var cv = q.get(CX[ci]); if (cv) ext.push(CX[ci] + ':' + cv.slice(0, 60)); }
     if (ext.length) LS.setItem('fit_cx', ext.join('|').slice(0, 120));
-    // referrer 분류: 외부 referrer일 때만 갱신(내부이동 ''는 덮어쓰기 안 함). ft=최초 1회.
+    // referrer 분류: 외부 referrer=last-touch 갱신. 'direct'는 알려진 값 없을 때만(외부소스 안 덮음).
+    // 내부이동('')은 아무것도 안 함. ft=최초 1회.
     var rc = refClass();
-    if (rc) { LS.setItem('fit_rc', rc); if (!LS.getItem('fit_ftrc')) LS.setItem('fit_ftrc', rc); }
+    if (rc === 'direct') {
+      if (!LS.getItem('fit_rc')) LS.setItem('fit_rc', 'direct');
+      if (!LS.getItem('fit_ftrc')) LS.setItem('fit_ftrc', 'direct');
+    } else if (rc) {
+      LS.setItem('fit_rc', rc);
+      if (!LS.getItem('fit_ftrc')) LS.setItem('fit_ftrc', rc);
+    }
   } catch (e) {}
   function g(k) { try { return LS.getItem(k) || ''; } catch (e) { return ''; } }
   function normEmail(v) { return (v || '').trim().toLowerCase(); }
