@@ -286,6 +286,48 @@
     } catch (e) {}
     return null;
   }
+  // (d) Wix hidden 소스필드 서버측 캡처(2026-07-15): sendBeacon 미도달(추적실패) 대비 폼 자체에 소스를
+  //     실어 제출 레코드(Wix 그라운드트루스)에 확보. Wix는 React 제어라 DOM value만 넣으면 무시 →
+  //     ★네이티브 value setter + input/change 이벤트로 React state 갱신해야 제출 payload에 실림.
+  //     자기발견 프리픽스 'fitsrc1:' → 리컨실이 form_field ID 몰라도 값 스캔으로 채택(프로브 왕복 제거).
+  //     PII 안전: 이메일·원문 referrer 미포함(fire()와 동일 소스, ref_class는 도메인라벨).
+  function srcBlob() {
+    try {
+      var p = 'creative=' + encodeURIComponent(g(CFT)) +
+        '&rc=' + encodeURIComponent(g('fit_rc')) +
+        '&us=' + encodeURIComponent(g('fit_us')) +
+        '&um=' + encodeURIComponent(g('fit_um')) +
+        '&fb=' + (g(CFB) ? '1' : '0') +
+        '&lp=' + encodeURIComponent(location.pathname);
+      return 'fitsrc1:' + p;
+    } catch (e) { return ''; }
+  }
+  function setNative(el, val) {
+    try {
+      var proto = (el.tagName === 'TEXTAREA') ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+      var d = Object.getOwnPropertyDescriptor(proto, 'value');
+      if (d && d.set) d.set.call(el, val); else el.value = val;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (e) { try { el.value = val; } catch (e2) {} }
+  }
+  function fillSrc(f) {
+    try {
+      f = f || activeForm(); if (!f) return;
+      // 그램이 title='fit_src'로 필드 생성 → Wix가 aria-label/placeholder/name/data-testid 중 어딘가에 반영.
+      var el = f.querySelector(
+        'input[aria-label="fit_src"],textarea[aria-label="fit_src"],'
+        + 'input[placeholder="fit_src"],textarea[placeholder="fit_src"],'
+        + 'input[name*="fit_src" i],textarea[name*="fit_src" i]');
+      if (!el) return;
+      var blob = srcBlob(); if (!blob || blob === 'fitsrc1:creative=&rc=&us=&um=&fb=0&lp=' + encodeURIComponent(location.pathname)) {
+        /* 소스 전무면 굳이 안 채움(진짜 direct는 서버측도 미상) */
+      }
+      if (el.value !== blob) setNative(el, blob);
+    } catch (e) {}
+  }
+  // 폼 늦은 렌더/재렌더로 값 리셋 대비: 초기 + 15초간 1초 폴링(하이드레이션 창) + 클릭/제출 직전 재주입.
+  try { fillSrc(); var _ft = 0, _fi = setInterval(function () { _ft++; fillSrc(); if (_ft >= 15) clearInterval(_fi); }, 1000); } catch (e) {}
   function sha256(s) {
     try {
       if (!(window.crypto && crypto.subtle)) return Promise.resolve('');
@@ -320,6 +362,7 @@
     var txt = (btn.textContent || btn.getAttribute('aria-label') || '');
     if (!/通知を受け取る|先行登録|事前登録/.test(txt)) return;
     var f = (btn.closest && btn.closest('form[aria-label="makuake_OPB1"]')) || activeForm();
+    fillSrc(f);                                             // 제출 직전 소스필드 최신값 재주입(서버측 확보)
     var email = emailFromForm(f);
     if (!email) return;
     var variant = (window.innerWidth <= 750) ? 'mobile' : 'desktop';
@@ -331,6 +374,7 @@
   document.addEventListener('submit', function (e) {
     try {
       var f = e.target; if (!f || !f.getAttribute || f.getAttribute('aria-label') !== 'makuake_OPB1') return;
+      fillSrc(f);                                           // 캡처페이즈(Wix보다 먼저) 최신값 재주입
       var email = emailFromForm(f); if (!email) return;
       var variant = (window.innerWidth <= 750) ? 'mobile' : 'desktop';
       sha256(email).then(function (h) { fire(h, variant + '_sbmt'); });
