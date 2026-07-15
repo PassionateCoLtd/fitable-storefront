@@ -7,11 +7,17 @@
  *       - 모바일 스티키(.fixed-wr)는 스킨 내장 요소 → CSS display:none 로만 제거 가능.
  * 안전: 프론트에서 해당 DOM만 숨김. 서버/신청/DB 통신 없음. try/catch 격리. 126에서만 동작.
  * 롤백: 이 ScriptTag DELETE 1콜.
+ * PREVIEW: true면 localStorage.fit_preview==='1' 브라우저에서만 숨김(리허설용, 일반고객 영향0).
+ *          큐 신호 시 PREVIEW=false 버전으로 교체 배포 → 전원 적용. (order_delivery_notice.js 동일 패턴)
  * 2026-07-15
  */
 (function(){
   if (window.__wpbStickyHide) return; window.__wpbStickyHide = 1;
   try {
+    var PREVIEW = true;
+    if (PREVIEW) {
+      try { if (window.localStorage.getItem('fit_preview') !== '1') return; } catch (e) { return; }
+    }
     // ── 대상 상품번호 (와이드풀업바 WPB01=126). ──
     var TARGETS = ['126'];
 
