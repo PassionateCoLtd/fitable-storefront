@@ -16,7 +16,10 @@
   try {
     var PREVIEW = true;
     if (PREVIEW) {
-      try { if (window.localStorage.getItem('fit_preview') !== '1') return; } catch (e) { return; }
+      // 리허설 게이트: URL ?fit_preview=1 (모바일 친화) 또는 localStorage.fit_preview==='1'
+      var ok = /[?&]fit_preview=1(&|$)/.test(location.search);
+      if (!ok) { try { ok = window.localStorage.getItem('fit_preview') === '1'; } catch (e) { ok = false; } }
+      if (!ok) return;
     }
     // ── 대상 상품번호 (와이드풀업바 WPB01=126). ──
     var TARGETS = ['126'];
