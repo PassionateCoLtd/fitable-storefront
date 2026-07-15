@@ -1,0 +1,65 @@
+<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8">
+<style>
+@font-face{font-family:'SUIT';font-weight:100 900;font-display:block;
+  src:url('https://cdn.jsdelivr.net/gh/sunn-us/SUIT@2/fonts/variable/woff2/SUIT-Variable.woff2') format('woff2-variations');}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'SUIT','Apple SD Gothic Neo',sans-serif;background:#EAEBED;
+  -webkit-font-smoothing:antialiased;}
+.wrap{width:1720px;background:#EAEBED;padding:64px 60px 56px;}
+.eyebrow{font-size:26px;font-weight:700;letter-spacing:.34em;color:#A8A29E;}
+.head{display:flex;align-items:center;gap:26px;margin-top:22px;}
+.h1{font-size:78px;font-weight:800;letter-spacing:-2px;color:#1C1917;line-height:1;}
+.status{display:inline-flex;align-items:center;gap:11px;background:#fff;
+  padding:14px 26px;border-radius:0;font-size:29px;font-weight:700;color:#1C1917;}
+.status i{width:12px;height:12px;border-radius:50%;background:#171716;display:inline-block;}
+.cards{margin-top:44px;display:flex;flex-direction:column;gap:26px;}
+/* 공통 행 */
+.row{display:flex;align-items:center;justify-content:space-between;padding:44px 52px;border-radius:0;}
+.rl .t{font-size:46px;font-weight:700;letter-spacing:-1px;line-height:1.1;}
+.rl .s{font-size:29px;font-weight:500;margin-top:14px;letter-spacing:-.5px;}
+.rr{display:flex;align-items:center;gap:26px;}
+.price{font-size:54px;font-weight:800;letter-spacing:-1.5px;}
+.pill{font-size:26px;font-weight:700;padding:10px 20px;border-radius:0;letter-spacing:-.3px;white-space:nowrap;}
+/* 품절(비활성) */
+.sold{background:#DEDFE2;}
+.sold .t{color:#A7A29C;} .sold .s{color:#B4AFA9;}
+.sold .price{color:#B4AFA9;text-decoration:line-through;text-decoration-thickness:3px;}
+.sold .pill{background:#57534E;color:#F5F5F4;}
+/* 현재 진행(하이라이트) — A안 웜블랙 */
+.now{background:#171716;flex-direction:column;align-items:stretch;padding:38px 52px;}
+.now .top{display:flex;justify-content:space-between;align-items:center;}
+.now .badge{display:inline-block;background:#2A2724;color:#E7E5E4;border:1px solid #3C3A36;
+  font-size:24px;font-weight:700;padding:9px 18px;border-radius:0;letter-spacing:.02em;}
+.now .t{font-size:52px;font-weight:800;color:#FAFAF9;letter-spacing:-1.2px;margin-top:20px;}
+.now .price{color:#FFFFFF;font-size:62px;}
+.now .s{font-size:29px;font-weight:600;color:#A8A29E;margin-top:16px;letter-spacing:-.5px;}
+.now .toprow{display:flex;justify-content:space-between;align-items:flex-end;}
+/* 예정/정식 — 화이트 카드 */
+.plain{background:#FFFFFF;}
+.plain .t{color:#1C1917;} .plain .s{color:#A8A29E;}
+.open .t2{color:#B4AFA9;font-weight:800;}
+.open .pill{background:#E7E5E4;color:#57534E;}
+.plain .price{color:#1C1917;}
+.plain .price.mute{color:#B4AFA9;}
+.foot{margin-top:40px;font-size:29px;font-weight:500;color:#A8A29E;letter-spacing:-.5px;}
+.badge-inline{display:inline-flex;align-items:center;gap:16px;}
+</style></head><body><div class="wrap">
+  <div class="eyebrow">PRE-ORDER</div>
+  <div class="head"><div class="h1">사전예약 안내</div>
+    <span class="status"><i></i>진행 중</span></div>
+  <div class="cards">
+    <div class="row sold"><div class="rl"><div class="t">1차 얼리버드</div><div class="s">한정 100대</div></div>
+      <div class="rr"><span class="pill">품절</span><span class="price">49,900원</span></div></div>
+    <div class="row sold"><div class="rl"><div class="t">2차 얼리버드</div><div class="s">한정 500대</div></div>
+      <div class="rr"><span class="pill">품절</span><span class="price">54,900원</span></div></div>
+    <div class="row sold"><div class="rl"><div class="t">2.5차 얼리버드</div><div class="s">긴급 추가 500대</div></div>
+      <div class="rr"><span class="pill">품절</span><span class="price">57,900원</span></div></div>
+    <div class="row sold"><div class="rl"><div class="t">3차 얼리버드</div><div class="s">한정 1,000대</div></div>
+      <div class="rr"><span class="pill">품절</span><span class="price">59,900원</span></div></div>
+    <div class="row plain open"><div class="rl"><div class="badge-inline"><span class="t">9월 초 발송분</span><span class="pill">오픈 예정</span></div><div class="s">진행 여부 공지 예정 · 9월 초 순차 발송</div></div>
+      <div class="rr"><span class="price mute">59,900원</span></div></div>
+    <div class="row plain"><div class="rl"><div class="t">정식 출시</div><div class="s">8월 초 이후 정가</div></div>
+      <div class="rr"><span class="price">79,900원</span></div></div>
+  </div>
+  <div class="foot">사전예약 물량이 완판되었습니다. 추가 진행 여부는 공지 예정입니다.</div>
+</div></body></html>
