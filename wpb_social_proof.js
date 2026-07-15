@@ -1,7 +1,7 @@
 /* wpb_social_proof.js — WPB01(126) 사전알림 CTA 위 신청자 신뢰 라인 — 2026-06-11 (자비스 관리)
  * 대상: product_no=126 상품상세 한정(그 외 즉시 종료). "이미 N명이 기다리고 있어요" 1줄을
  *   카카오 신청 CTA(#wpb-kakao-primary) 바로 위에 주입. N = jsDelivr wpb_count.json(@main, 크론 갱신).
- * 감도: 다크 CTA 패널(#0A0A0A)에 native — #008BCC 점 + 무채색 라이트 텍스트 + 흰 숫자.
+ * 감도: 새 스킨 A안 톤(2026-07-15) — SUIT · 웜그레이 #A8A29E 점+텍스트 + 흰 숫자.
  *   박스·이모지·빨강·느낌표 없음. 사전예약 밴드왜건(검증) 프레이밍.
  * 안전: DOM 1요소 삽입만(서버/DB/신청 무통신). floor 가드(<500 미표시), 숫자 fetch 실패=라인 미표시.
  *   try/catch 격리, 중복 가드. 롤백: 어드민 API scripttags DELETE.
@@ -22,11 +22,11 @@
       var w = document.createElement('div');
       w.id = 'wpb-social-proof';
       w.style.cssText = "margin:4px 0 22px;text-align:center;" +
-        "font-family:'Pretendard Variable',Pretendard,sans-serif;" +
-        "font-size:13px;line-height:1.5;color:#9AA7B8;letter-spacing:-0.01em;";
+        "font-family:'SUIT','Plus Jakarta Sans','Apple SD Gothic Neo','Noto Sans KR',sans-serif;" +
+        "font-size:13px;line-height:1.5;color:#A8A29E;letter-spacing:-0.01em;";
       w.innerHTML =
         '<span style="display:inline-block;width:5px;height:5px;border-radius:50%;' +
-          'background:#008BCC;vertical-align:middle;margin-right:7px;"></span>' +
+          'background:#A8A29E;vertical-align:middle;margin-right:7px;"></span>' +
         '이미 <strong style="color:#fff;font-weight:700;">' + n + '명</strong>이 기다리고 있어요';
       return w;
     }
