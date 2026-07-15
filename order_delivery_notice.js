@@ -16,13 +16,14 @@
     if (Date.now() >= 1785510000000 /* 2026-08-01T00:00:00+09:00 */) return;
     if (!/\/order\/(basket|orderform)/.test(location.pathname)) return;
 
-    var FONT = "'Pretendard','Apple SD Gothic Neo','Noto Sans KR',sans-serif";
-    // 라벨-값 2줄 정렬 · PDP 블랙 배너와 동일 디자인 언어(#0B0B0D + #93C5FD)
+    // 2026-07-15 새 스킨 톤앤매너 반영(A안): 각진 코너·SUIT 폰트·웜블랙 #171716·웜그레이 라벨.
+    // 구 스킨 시절 #0B0B0D+라운드12+파랑라벨(Pretendard)에서 새 스킨 구매버튼과 톤 통일.
+    var FONT = "'SUIT','Plus Jakarta Sans','Apple SD Gothic Neo','Noto Sans KR',sans-serif";
     var ROW = 'display:flex;align-items:baseline;gap:12px;';
-    var LABEL = 'flex:none;width:30px;font-size:10.5px;font-weight:600;letter-spacing:.14em;color:#93C5FD;';
-    var VAL = 'font-size:13px;font-weight:500;color:#F2F3F5;letter-spacing:-0.1px;word-break:keep-all;';
+    var LABEL = 'flex:none;width:34px;font-size:10px;font-weight:600;letter-spacing:.12em;color:#A8A29E;';
+    var VAL = 'font-size:13px;font-weight:500;color:#FAFAF9;letter-spacing:-0.1px;word-break:keep-all;';
     // 모바일 390px에서 메인 줄이 절대 안 꺾이도록: 메인 2줄 짧게 + 보조 설명 줄(작은 회색)
-    var SUB = 'font-size:11.5px;font-weight:500;color:#8a919c;letter-spacing:-0.1px;word-break:keep-all;';
+    var SUB = 'font-size:11.5px;font-weight:500;color:#78716C;letter-spacing:-0.1px;word-break:keep-all;';
     function row(label, valHtml, top, sub) {
       return '<div style="' + ROW + (top ? 'margin-top:' + top + 'px;' : '') + '">' +
         '<span style="' + LABEL + '">' + label + '</span>' +
@@ -58,7 +59,7 @@
         var bar = document.createElement('div');
         bar.id = 'fit-delivery-notice';
         bar.innerHTML = buildMsg(hasEarly, has2nd);
-        bar.style.cssText = 'background:#0B0B0D;padding:14px 17px;border-radius:12px;' +
+        bar.style.cssText = 'background:#171716;padding:14px 16px;border-radius:0;' +
           'margin:10px 12px 4px;line-height:1.5;font-family:' + FONT + ';';
         var host = document.getElementById('contents') ||
                    document.querySelector('.xans-order') || document.body;
