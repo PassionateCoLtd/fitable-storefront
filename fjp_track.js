@@ -269,6 +269,14 @@
     }
   } catch (e) {}
   function g(k) { try { return LS.getItem(k) || ''; } catch (e) { return ''; } }
+  // ★fbp 캡처(2026-07-22): Meta 픽셀이 심는 _fbp 브라우저쿠키 → CAPI 매칭키(EMQ↑). 없으면 빈값.
+  //   PII 아님(브라우저 랜덤 식별자). additive만 — 기존 payload 필드 불변.
+  function fbpCookie() {
+    try {
+      var m = (document.cookie || '').match(/(?:^|;\s*)_fbp=([^;]+)/);
+      return m ? decodeURIComponent(m[1]).slice(0, 120) : '';
+    } catch (e) { return ''; }
+  }
   function normEmail(v) { return (v || '').trim().toLowerCase(); }
   function emailFromForm(f) {
     try { var el = f && f.querySelector('input[type="email"]'); var v = normEmail(el && el.value); return EMAIL_RE.test(v) ? v : ''; }
@@ -348,7 +356,8 @@
     var payload = { email_sha256: emailHash, visitor_id: '', creative: creative, fbclid: g(CFB),
       confirmed: 1, form_variant: variant || '', ts: Date.now(), page: location.pathname,
       utm_source: g('fit_us'), utm_medium: g('fit_um'), utm_campaign: g('fit_uc'), utm_term: g('fit_ut'),
-      gclid: g('fit_gc'), click_ext: g('fit_cx'), ref_class: g('fit_rc'), ft_ref_class: g('fit_ftrc') };
+      gclid: g('fit_gc'), click_ext: g('fit_cx'), ref_class: g('fit_rc'), ft_ref_class: g('fit_ftrc'),
+      fbp: fbpCookie() };  // ★7/22 additive: CAPI 매칭키(_fbp 쿠키). 서버가 client_ip/UA는 헤더로 확보
     var body = JSON.stringify(payload), ok = false;
     try { if (navigator.sendBeacon) ok = navigator.sendBeacon(BEACON, new Blob([body], { type: 'text/plain' })); } catch (e) {}
     if (!ok && window.fetch) { try { fetch(BEACON, { method: 'POST', body: body, keepalive: true, mode: 'no-cors', headers: { 'Content-Type': 'text/plain' } }); ok = true; } catch (e) {} }
