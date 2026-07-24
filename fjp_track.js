@@ -19,7 +19,12 @@
   // 병합 보존하므로, 안 비우면 직전 이벤트의 click_url/img_idx 등이 다음 이벤트(view/scroll 등)에
   // 묻어 GA4 커스텀측정기준이 오염됨. GTM DLV(setDefaultValue=false)는 undefined면 param 생략.
   var PARAM_KEYS = ['img_idx', 'img_label', 'sec_idx', 'sec_label', 'pdp_screen',
-                    'click_text', 'click_url', 'click_id', 'click_label'];
+                    'click_text', 'click_url', 'click_id', 'click_label',
+                    // ── 확장(2026-07-24): 비디오·이탈스냅샷·CTA위치/지연·레이지클릭 ──
+                    'vid_idx', 'vid_label', 'vid_pct',
+                    'exit_max_sec', 'exit_max_img', 'exit_max_screen',
+                    'exit_scroll_pct', 'exit_dwell_ms', 'exit_reason',
+                    'latency_ms', 'cta_kind', 'rage_count'];
   // dataLayer 단일 경로. params는 최상위 키로 푸시(GTM Data Layer 변수가 읽음).
   function ev(suffix, params) {
     try {
@@ -30,6 +35,10 @@
         Object.assign(base, { event: name }, params || {}));
     } catch (e) {}
   }
+
+  // ── 확장 공통 상태(2026-07-24): 이탈 스냅샷용 최대 도달치 + 세션 시작시각 ──
+  var T0 = Date.now();
+  var MX = { pct: 0, screen: 0, img_idx: 0, sec_idx: 0, vid_idx: 0 };
 
   // 1) 진입(분모)
   ev('view');
@@ -65,6 +74,7 @@
         var now = Math.max(0, prev + (en.isIntersecting ? 1 : -1));
         vis[u] = now;
         var p = {}; p[idxKey] = idx; p[labelKey] = labMap[u] || ('idx_' + idx);
+        if (en.isIntersecting && idx > (MX[idxKey] || 0)) MX[idxKey] = idx;  // 이탈 스냅샷용 최대 도달 idx
         if (en.isIntersecting && !seen[u]) { seen[u] = 1; ev(viewSuffix, p); }
         if (prev === 0 && now > 0 && !dwelled[u] && !timer[u]) {
           timer[u] = setTimeout((function (k, pp) {
@@ -78,7 +88,9 @@
     return {
       observe: function (el, label) {
         var u = uidOf(el); if (idxMap[u]) return;   // 1회만 부여(idx=DOM순서)
-        idxMap[u] = ++n; labMap[u] = label; io.observe(el);
+        idxMap[u] = ++n; labMap[u] = label;
+        try { el['__fjp_' + idxKey] = n; el['__fjp_' + labelKey] = label; } catch (e) {}  // 클릭 위치컨텍스트 조회용 스탬프
+        io.observe(el);
       }
     };
   }
@@ -87,12 +99,41 @@
   var imgLayer = makeLayer('img_view', 'img_dwell', 'img_idx', 'img_label');
   // 3) 섹션 단위 도달/체류 — CSS 배경이미지 섹션까지 커버 (Wix .wixui-section 14개)
   var secLayer = makeLayer('sec_view', 'sec_dwell', 'sec_idx', 'sec_label');
+  // 3b) 비디오 도달/체류 + 재생 진행률 — <img> 스캔의 사각지대(설치데모 영상 등) 계측.
+  //     getElementsByTagName('img')는 <video>를 못 잡아 완전한 블라인드스팟이었음.
+  //     view/dwell은 이미지·섹션과 동일한 idx/label 체계로, 재생은 HTML5 media 이벤트로 별도 계측.
+  var vidLayer = makeLayer('vid_view', 'vid_dwell', 'vid_idx', 'vid_label');
+  function attachVideo(v) {
+    try {
+      if (v.__fjpVid) return; v.__fjpVid = 1;
+      vidLayer.observe(v, labelOf(v));                 // __fjp_vid_idx 스탬프 부여
+      var lab = labelOf(v), ms = { 25: 0, 50: 0, 75: 0, done: 0 }, played = 0;
+      function vp(suffix, extra) {
+        var p = { vid_idx: v.__fjp_vid_idx || null, vid_label: lab || null };
+        if (extra) for (var k in extra) p[k] = extra[k];
+        ev(suffix, p);
+      }
+      // muted+loop 자동재생이면 play가 즉시 1회. loop 재시작으로 인한 재발화는 played/ms 플래그로 차단.
+      v.addEventListener('play', function () { if (played) return; played = 1; vp('vid_play'); }, { passive: true });
+      v.addEventListener('timeupdate', function () {
+        try {
+          var d = v.duration; if (!d || !isFinite(d) || d <= 0) return;
+          var pct = v.currentTime / d * 100;
+          [25, 50, 75].forEach(function (m) { if (!ms[m] && pct >= m) { ms[m] = 1; vp('vid_progress', { vid_pct: m }); } });
+          if (!ms.done && pct >= 95) { ms.done = 1; vp('vid_complete', { vid_pct: 100 }); }  // loop라 ended가 안 올 수 있어 95%로 완주 판정
+        } catch (e) {}
+      }, { passive: true });
+      v.addEventListener('ended', function () { if (!ms.done) { ms.done = 1; vp('vid_complete', { vid_pct: 100 }); } }, { passive: true });
+    } catch (e) {}
+  }
   function scan() {
     try {
       var imgs = document.getElementsByTagName('img');
       for (var i = 0; i < imgs.length; i++) imgLayer.observe(imgs[i], labelOf(imgs[i]));
       var secs = document.querySelectorAll('section[data-block-level-container], .wixui-section');
       for (var j = 0; j < secs.length; j++) secLayer.observe(secs[j], secs[j].id || null);
+      var vids = document.getElementsByTagName('video');
+      for (var k = 0; k < vids.length; k++) attachVideo(vids[k]);
     } catch (e) {}
   }
   function start() {
@@ -116,6 +157,7 @@
     var max = Math.max(b ? b.scrollHeight : 0, de.scrollHeight) - window.innerHeight;
     if (max <= 0) return;
     var pct = Math.round(top / max * 100);
+    if (pct > MX.pct) MX.pct = pct;                  // 이탈 스냅샷용 최대 스크롤%
     [25, 50, 75, 100].forEach(function (d) { if (!hit[d] && pct >= d) { hit[d] = 1; ev('scroll_' + d); } });
   }
 
@@ -128,6 +170,7 @@
     var idx = Math.floor(scrTop() / scrVH()) + 1;
     if (idx === scrCur) return;
     scrCur = idx;
+    if (idx > MX.screen) MX.screen = idx;            // 이탈 스냅샷용 최대 화면 idx
     if (!scrSeen[idx]) { scrSeen[idx] = 1; ev('screen_view', { pdp_screen: idx }); }
     if (scrTimer) { clearTimeout(scrTimer); scrTimer = null; }
     scrTimer = setTimeout(function () {
@@ -172,6 +215,41 @@
   var firedCTA = {};
   function ctaOnce(suffix, p) { if (firedCTA[suffix]) return; firedCTA[suffix] = 1; ev(suffix, p || {}); }
 
+  // ── 클릭 위치 컨텍스트: 클릭 지점의 최근접 섹션/이미지 idx·label + 현재 화면 idx ──
+  //    makeLayer.observe가 엘리먼트에 스탬프한 __fjp_sec_idx/__fjp_img_idx를 읽어 "어느 근처에서 눌렀나"를 복원.
+  //    아직 관찰 전이면 sec/img는 비고 pdp_screen(스크롤 위치 기반)이 항상 폴백으로 남음.
+  function posCtx(el) {
+    var out = { pdp_screen: scrCur || null };
+    try {
+      var s = el && el.closest && el.closest('section[data-block-level-container], .wixui-section');
+      if (s && s.__fjp_sec_idx) { out.sec_idx = s.__fjp_sec_idx; out.sec_label = s.__fjp_sec_label || null; }
+      // <img>는 자식을 못 가지는 void 엘리먼트라 el.closest('img')는 el 자신이 img일 때만 매칭 —
+      // CTA버튼 등 이미지 밖 클릭에선 항상 실패. 같은 섹션(없으면 문서 전체) 내 '이미 스탬프된' img 중
+      // DOM상 마지막(=클릭지점에 가장 가까운 앞선) 이미지를 근사치로 채택.
+      var scope = (s && s.querySelectorAll) ? s : document;
+      var imgs = scope.querySelectorAll ? scope.querySelectorAll('img') : [];
+      for (var q = imgs.length - 1; q >= 0; q--) {
+        if (imgs[q].__fjp_img_idx) { out.img_idx = imgs[q].__fjp_img_idx; out.img_label = imgs[q].__fjp_img_label || null; break; }
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  // ── 레이지클릭(프러스트레이션 신호): 700ms 내 동일영역(±32px) 3회+ 클릭 → 1회 보고(3초 쿨다운) ──
+  //    우선순위 낮음(대표 지시)이나 저비용이라 포함. 데드클릭은 오탐률 높아 제외.
+  var rageBuf = [], rageCool = 0;
+  function rageCheck(e, ctx) {
+    var now = Date.now(), x = e.clientX || 0, y = e.clientY || 0;
+    rageBuf.push({ t: now, x: x, y: y });
+    if (rageBuf.length > 12) rageBuf.shift();
+    var near = 0;
+    for (var i = 0; i < rageBuf.length; i++) {
+      var c = rageBuf[i];
+      if (now - c.t <= 700 && Math.abs(c.x - x) <= 32 && Math.abs(c.y - y) <= 32) near++;
+    }
+    if (near >= 3 && now - rageCool > 3000) { rageCool = now; ev('rage_click', Object.assign({ rage_count: near }, ctx || {})); }
+  }
+
   document.addEventListener('click', function (e) {
     if (!e.isTrusted) return;
     var t = e.target; if (!t || !t.closest) return;
@@ -183,21 +261,42 @@
     var id = el.id || '';
     var lab = deriveLabel(el, text, href);
 
-    // 핵심 CTA(위치별, 1회) — 사전예약/통知/외부 펀딩/내비
+    // 위치 컨텍스트(섹션/이미지/화면 idx)와 참여지연(진입→클릭) — 모든 클릭·CTA에 additive 부착.
+    var ctx = posCtx(el);
+    var lat = Date.now() - T0;
+
+    // 핵심 CTA(위치별, 1회) — 사전예약/통知/외부 펀딩/내비. ctaOnce=세션1회(전환지표 시맨틱 보존).
+    //   +위치컨텍스트·참여지연을 additive param으로 부착: "어느 섹션에서 몇 초 만에 등록 눌렀나".
+    var ctaKind = '';
     try {
       if ((el.closest && el.closest('form[aria-label="makuake_OPB1"]')) ||
-          /通知を受け取る|先行登録|事前登録/.test(text)) ctaOnce('cta_register', { click_label: 'register' });
-      if (/makuake\.com/i.test(href)) ctaOnce('cta_makuake', { click_url: href, click_label: 'makuake' });
-      else if (/camp-?fire\.jp/i.test(href)) ctaOnce('cta_campfire', { click_url: href, click_label: 'campfire' });
-      else if (href && isOutbound(href)) ev('cta_outbound', { click_url: href, click_label: lab });
+          /通知を受け取る|先行登録|事前登録/.test(text)) {
+        ctaKind = 'register';
+        ctaOnce('cta_register', Object.assign({ click_label: 'register', latency_ms: lat }, ctx));
+      }
+      if (/makuake\.com/i.test(href)) {
+        ctaKind = ctaKind || 'makuake';
+        ctaOnce('cta_makuake', Object.assign({ click_url: href, click_label: 'makuake', latency_ms: lat }, ctx));
+      } else if (/camp-?fire\.jp/i.test(href)) {
+        ctaKind = ctaKind || 'campfire';
+        ctaOnce('cta_campfire', Object.assign({ click_url: href, click_label: 'campfire', latency_ms: lat }, ctx));
+      } else if (href && isOutbound(href)) {
+        ev('cta_outbound', Object.assign({ click_url: href, click_label: lab }, ctx));
+      }
       if (el.getAttribute && el.getAttribute('data-testid') === 'linkElement' && href) {
         var navm = href.match(/\/(faq|aboutus|stepmill|stepmillpro)\b/i);
-        if (navm) ev('nav', { click_label: navm[1].toLowerCase() });
+        if (navm) ev('nav', Object.assign({ click_label: navm[1].toLowerCase() }, ctx));
       }
+      // cta_click_all: 핵심 CTA(register/makuake/campfire)만, 매 클릭 무제한 발화 → 상단고정바/본문/하단 등
+      //   위치별 클릭맵. ctaOnce(세션 1회=전환 카운트)와 분리해 단일-전환 시맨틱은 그대로 보존.
+      if (ctaKind) ev('cta_click_all', Object.assign({ cta_kind: ctaKind, click_text: text, latency_ms: lat }, ctx));
     } catch (err) {}
 
-    // 모든 클릭(범용)
-    ev('click', { click_text: text, click_url: href, click_id: id, click_label: lab });
+    // 모든 클릭(범용) + 위치 컨텍스트
+    ev('click', Object.assign({ click_text: text, click_url: href, click_id: id, click_label: lab }, ctx));
+
+    // 레이지클릭 감지
+    try { rageCheck(e, ctx); } catch (err2) {}
   }, true);
 
   // 7) 폼 제출(이메일 사전예약) — Enter 제출까지 포착. 입력값은 절대 읽지 않음(PII 금지).
@@ -209,6 +308,56 @@
         ctaOnce('form_submit', { click_label: 'makuake_OPB1' });
     } catch (err) {}
   }, true);
+
+  // 7b) 폼 관심 신호(제출 안 해도) — "관심은 있었으나 이탈"을 분리. 값은 절대 안 읽음(PII 금지).
+  //     form_focus=폼 필드 최초 포커스(세션1회), form_input_start=이메일칸 최초 타이핑(세션1회, 더 강한 의도).
+  //     제출 이벤트(form_submit) 부재 + 이 신호 존재 = "이메일칸 만졌는데 등록 안 함" 드롭오프.
+  var firedFocus = 0, firedInput = 0;
+  document.addEventListener('focusin', function (e) {
+    try {
+      if (firedFocus || !e.isTrusted) return;
+      var t = e.target; if (!t || !t.closest || !t.matches) return;
+      if (!t.matches('input,textarea,select')) return;
+      if (!t.closest('form[aria-label="makuake_OPB1"]')) return;
+      firedFocus = 1;
+      ev('form_focus', Object.assign({ click_label: 'makuake_OPB1' }, posCtx(t)));
+    } catch (err) {}
+  }, true);
+  document.addEventListener('input', function (e) {
+    try {
+      if (firedInput || !e.isTrusted) return;                 // 합성 input(§8 setNative 등)은 isTrusted=false로 배제
+      var t = e.target; if (!t || !t.closest || !t.matches) return;
+      if (!t.matches('input[type="email"]')) return;          // 값은 읽지 않음 — 발생 사실만
+      if (!t.closest('form[aria-label="makuake_OPB1"]')) return;
+      firedInput = 1;
+      ev('form_input_start', Object.assign({ click_label: 'makuake_OPB1' }, posCtx(t)));
+    } catch (err) {}
+  }, true);
+
+  // 7c) 이탈 스냅샷 — 페이지를 떠날 때 "어디까지/얼마나 봤나" 1회 요약(드롭오프 지점 분석).
+  //    visibilitychange(hidden) 우선: 탭전환·백그라운드도 포착, 언로드보다 전송 신뢰도 높음.
+  //    visible 복귀 시 재무장 → 백그라운드 진입마다 최신 최대치 1회 전송(GA4 MAX 집계로 실제 최심도 복원).
+  //    pagehide는 최후 백업(일부 브라우저는 hidden 없이 pagehide만 발화). exitArmed로 이중발송 차단.
+  //    한계: GA4 태그가 beacon transport가 아니면 언로드 직전 push가 유실될 수 있음 → hidden 우선 채택으로 완화.
+  var exitArmed = 1;
+  function exitSnapshot(reason) {
+    if (!exitArmed) return; exitArmed = 0;
+    ev('exit', {
+      exit_reason: reason,
+      exit_max_sec: MX.sec_idx || 0,
+      exit_max_img: MX.img_idx || 0,
+      exit_max_screen: MX.screen || 0,
+      exit_scroll_pct: MX.pct || 0,
+      exit_dwell_ms: Date.now() - T0
+    });
+  }
+  document.addEventListener('visibilitychange', function () {
+    try {
+      if (document.visibilityState === 'hidden') exitSnapshot('hidden');
+      else if (document.visibilityState === 'visible') exitArmed = 1;   // 복귀 시 재무장
+    } catch (e) {}
+  }, true);
+  window.addEventListener('pagehide', function () { try { exitSnapshot('pagehide'); } catch (e) {} }, true);
 })();
 
 // ── 8) 마쿠아케 리드 소재 어트리뷰션 비콘 (2026-07-13) ──
