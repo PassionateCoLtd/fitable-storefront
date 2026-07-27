@@ -1,0 +1,109 @@
+/* pdp_addproduct_subcopy.js — 상품상세 「추가상품」 각 항목의 상품명 아래에
+   한 줄 서브카피를 붙인다. 지정 상품(product_no) × 지정 추가상품(상품명)에서만 동작.
+
+   배경(2026-07-27 대표 지시): 추가상품에 상품명·가격만 노출돼 "왜 필요한지"를 페이지가
+   말해주지 않는다. 상단 히어로/가격/CTA는 디자인 의도상 건드리지 않고(대표 확인),
+   이미 열린 추가상품 영역 안에서만 한 줄로 말한다.
+
+   카피 원칙: 판매 언어("함께 구매하세요") 금지. 밴드=보조(문제형), 나머지=부위 확장.
+   ⚠️ 밴드 문구의 부착률(%)은 실측 파생치이며 변한다 → 분기 1회 갱신 대상.
+      산출 근거·원본 수치는 이 public repo에 남기지 않는다(숫자 격리 원칙).
+      갱신 시 사내 기준선 레지스트리에서 재산출할 것.
+
+   범위: PRODUCT_NOS 화이트리스트 × COPY 상품명 정확 매칭 = 이중 게이트.
+        둘 다 통과 못하면 DOM 미변경. 타 상품 영향 0.
+   방식: p.name 뒤에 <div class="fit-addsub"> 삽입. 스킨/상품 데이터 미변경.
+        추가상품 목록은 드롭다운 열 때 렌더되므로 MutationObserver로 감시.
+   멱등: 같은 항목에 이미 .fit-addsub 있으면 재주입 안 함.
+   롤백: ScriptTag DELETE 1콜. 전체 try/catch 격리(에러 나도 페이지 안 깨짐). */
+(function () {
+  'use strict';
+
+  var PRODUCT_NOS = ['125', '126'];
+
+  var COPY = [
+    ['와이드 풀업바 전용 풀업 밴드', '풀업이 어렵다면 · 구매자 19%가 함께 구매해요'],
+    ['스틸 푸쉬업바',               '철봉으로는 안 되는 가슴까지'],
+    ['쿼드 AB슬라이드 초심자용',     '복근까지 채우면 상체 끝']
+  ];
+
+  var STYLE = 'margin:4px 0 2px;font-size:11.5px;line-height:1.5;color:#78716C;' +
+              'font-family:SUIT,"Plus Jakarta Sans",sans-serif;';
+
+  function currentProductNo() {
+    var m = location.search.match(/[?&]product_no=(\d+)/) ||
+            location.pathname.match(/\/product\/[^\/]+\/(\d+)(?:\/|$)/);
+    return m ? m[1] : null;
+  }
+
+  function onTargetProduct() {
+    var no = currentProductNo();
+    if (!no) return false;
+    for (var i = 0; i < PRODUCT_NOS.length; i++) {
+      if (PRODUCT_NOS[i] === no) return true;
+    }
+    return false;
+  }
+
+  function copyFor(text) {
+    for (var i = 0; i < COPY.length; i++) {
+      if (text.indexOf(COPY[i][0]) !== -1) return COPY[i][1];
+    }
+    return null;
+  }
+
+  // 스로틀: MutationObserver가 body 전체를 보므로(우리 주입도 mutation을 유발)
+  // 호출 폭주를 막는다. 150ms 안에 재호출되면 무시.
+  var lastRun = 0;
+  function injectThrottled() {
+    var now = +new Date();
+    if (now - lastRun < 150) return;
+    lastRun = now;
+    inject();
+  }
+
+  function inject() {
+    try {
+      if (!onTargetProduct()) return;
+      var boxes = document.querySelectorAll('.xans-product-addproduct');
+      for (var b = 0; b < boxes.length; b++) {
+        var names = boxes[b].querySelectorAll('p.name');
+        for (var i = 0; i < names.length; i++) {
+          var p = names[i];
+          // 멱등: 바로 뒤 형제가 이미 우리 요소면 skip
+          var nx = p.nextElementSibling;
+          if (nx && nx.className === 'fit-addsub') continue;
+          var txt = (p.textContent || '').replace(/\s+/g, ' ').trim();
+          if (!txt) continue;
+          var msg = copyFor(txt);
+          if (!msg) continue;               // 지정 안 한 추가상품은 건드리지 않음
+          var d = document.createElement('div');
+          d.className = 'fit-addsub';
+          d.setAttribute('style', STYLE);
+          d.textContent = msg;
+          p.parentNode.insertBefore(d, p.nextSibling);
+        }
+      }
+    } catch (e) {}
+  }
+
+  try {
+    if (!onTargetProduct()) return;         // 대상 아니면 즉시 종료 — 아무것도 안 함
+
+    if (document.readyState === 'loading')
+      document.addEventListener('DOMContentLoaded', inject);
+    else inject();
+
+    // 추가상품 목록은 드롭다운을 열 때 렌더된다 → 지연 실행 + 변화 감시
+    setTimeout(inject, 400);
+    setTimeout(inject, 1200);
+    setTimeout(inject, 2500);
+
+    try {
+      var mo = new MutationObserver(function () { injectThrottled(); });
+      mo.observe(document.body, { childList: true, subtree: true });
+      // 사용자가 늦게 열 수 있으므로 freeship_hide(8초)보다 길게 유지
+      setTimeout(function () { try { mo.disconnect(); } catch (e) {} }, 60000);
+    } catch (e) {}
+  } catch (e) {}
+})();
