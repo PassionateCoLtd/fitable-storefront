@@ -27,7 +27,9 @@
     ['쿼드 AB슬라이드 초심자용',     '복근까지 채우면 상체 끝']
   ];
 
-  var STYLE = 'margin:4px 0 2px;font-size:11.5px;line-height:1.5;color:#78716C;' +
+  // 상품명 "위"에 얹는 아이브로우(eyebrow) 라벨 — 제품명을 읽기 전에
+  // "누구를 위한 것인지"가 먼저 들어오게. 색은 브랜드 라벨 웜그레이.
+  var STYLE = 'margin:0 0 3px;font-size:11.5px;line-height:1.4;color:#A8A29E;' +
               'font-family:SUIT,"Plus Jakarta Sans",sans-serif;';
 
   function currentProductNo() {
@@ -70,9 +72,16 @@
         var names = boxes[b].querySelectorAll('p.name');
         for (var i = 0; i < names.length; i++) {
           var p = names[i];
-          // 멱등: 바로 뒤 형제가 이미 우리 요소면 skip
-          var nx = p.nextElementSibling;
-          if (nx && nx.className === 'fit-addsub') continue;
+          var par = p.parentNode;
+          if (!par) continue;
+          // 멱등: 같은 컨테이너 안에 이미 우리 요소가 있으면 skip.
+          // ⚠️ 위치 기반(nextElementSibling)으로 검사하면 요소가 이동됐을 때
+          //    가드가 뚫려 중복 주입된다(2026-07-27 실측). 컨테이너 기준으로 볼 것.
+          var dup = false;
+          for (var k = 0; k < par.children.length; k++) {
+            if (par.children[k].className === 'fit-addsub') { dup = true; break; }
+          }
+          if (dup) continue;
           var txt = (p.textContent || '').replace(/\s+/g, ' ').trim();
           if (!txt) continue;
           var msg = copyFor(txt);
@@ -81,7 +90,7 @@
           d.className = 'fit-addsub';
           d.setAttribute('style', STYLE);
           d.textContent = msg;
-          p.parentNode.insertBefore(d, p.nextSibling);
+          par.insertBefore(d, p);           // 상품명 "앞"에 삽입
         }
       }
     } catch (e) {}
