@@ -17,6 +17,12 @@
     var ROW = 'display:flex;align-items:baseline;gap:12px;';
     var LABEL = 'flex:none;width:34px;font-size:10px;font-weight:600;letter-spacing:.12em;color:#A8A29E;';
     var VAL = 'font-size:13px;font-weight:500;color:#FAFAF9;letter-spacing:-0.1px;word-break:keep-all;';
+    var SUB = 'font-size:11.5px;font-weight:500;color:#78716C;letter-spacing:-0.1px;word-break:keep-all;';
+    function row(label, valHtml, top, sub) {
+      return '<div style="' + ROW + (top ? 'margin-top:' + top + 'px;' : '') + '">' +
+        '<span style="' + LABEL + '">' + label + '</span>' +
+        '<span style="' + (sub ? SUB : VAL) + '">' + valHtml + '</span></div>';
+    }
     var B = function (s) { return '<b style="font-weight:700;color:#fff;">' + s + '</b>'; };
 
     function build() {
@@ -26,9 +32,9 @@
         if (txt.indexOf('오브제 와이드 풀업바') === -1) return;
         var bar = document.createElement('div');
         bar.id = 'fit-delivery-notice';
-        bar.innerHTML = '<div style="' + ROW + '">' +
-          '<span style="' + LABEL + '">배송</span>' +
-          '<span style="' + VAL + '">' + B('8월 10일') + '부터 순차 출고돼요</span></div>';
+        bar.innerHTML =
+          row('배송', B('8월 10일') + '부터 순차 출고') +
+          row('', '결제하신 순서 그대로, 하나씩 정성껏 보내드릴게요', 7, true);
         bar.style.cssText = 'background:#171716;padding:14px 16px;border-radius:0;' +
           'margin:10px 12px 4px;line-height:1.5;font-family:' + FONT + ';';
         var host = document.getElementById('contents') ||
