@@ -119,6 +119,34 @@
       if (!g) { g = genGuid(); setCookie(K_GUID, g); }
       return g;
     }
+    /* ── 1.65 GA4 식별자 포착 (client_id/session_id, 2026-08-04) ──
+     * 목적: 서버사이드 보충전송(ga4_mp_purchase_backfill)이 합성 client_id 대신 **진짜**
+     *   cid/sid로 purchase를 쏘게 해서, 외부결제(네이버페이) 구매가 GA4에서 (not set)이
+     *   아니라 원래 세션·유입소스에 붙게 한다. 페이콘(유료앱)이 하던 일의 대체.
+     * 쿠키 포맷 2종 대응: _ga=GA1.1.<cid>  / _ga_<STREAM>=GS1.1.<sid>.. 또는 GS2.1.s<sid>$..
+     *   (2025년 GS2 포맷 전환 이력 — 한쪽만 파싱하면 조용히 전멸하므로 둘 다 시도)
+     * 실패해도 빈 문자열 → 백필이 기존 합성 cid로 폴백(무해). 화면·발화 영향 0. */
+    var GA4_STREAM = 'V7D156FCFX';   // 측정ID G-V7D156FCFX 의 스트림 접미사
+    function gaIds() {
+      var out = { cid: '', sid: '' };
+      try {
+        var m = (getCookie('_ga') || '').match(/GA\d\.\d\.(\d+\.\d+)$/);
+        if (m) out.cid = m[1];
+        var s = getCookie('_ga_' + GA4_STREAM) || '';
+        var ms = s.match(/GS2\.\d\.s(\d{9,})/) || s.match(/GS1\.\d\.(\d{9,})/);
+        if (ms) out.sid = ms[1];
+      } catch (e) {}
+      return out;
+    }
+    function addGaIds(payload) {
+      try {
+        var g = gaIds();
+        if (g.cid) payload.cid = g.cid;
+        if (g.sid) payload.sid = g.sid;
+      } catch (e) {}
+      return payload;
+    }
+
     function beaconPost(url, payload) {
       try {
         var bb = JSON.stringify(payload), bok = false;
@@ -234,6 +262,7 @@
         cp.guid = getGuid(); cp.kind = kind; cp.product_no = pno; cp.ts = t;
         var amt = checkoutAmount();
         if (amt > 0) cp.amount = amt;
+        addGaIds(cp);   // 결제창 이동 직전 = GA4 쿠키가 아직 우리 도메인에 살아있는 유일한 시점
         beaconPost(DASH + '/api/preorder/checkout_intent', cp);
       } catch (e) { /* 확장 격리 */ }
     }
@@ -281,6 +310,7 @@
         try {
           var bp = attrParams();
           bp.order_id = oid; bp.ts = NOW; bp.guid = getGuid();
+          addGaIds(bp);   // order_id↔cid 직결(가장 확실한 티어) — 도달률은 낮지만 오매칭 0
           beaconPost(DASH + '/api/preorder/order_attr', bp);
         } catch (e) { /* 확장 격리 */ }
         sent.push(oid);
