@@ -15,6 +15,7 @@
 | `wpb_social_proof.js` | 상품126 "N명이 기다려요" 사회적 증명 카운터 |
 | `wpb_join_result.js` | 상품126 사전예약 가입완료 픽셀 + CPL |
 | `wpb_popup_hide.js` | 상품126 상세 사전예약 팝업 숨김 |
+| `pdp_option_autoselect.js` | **필수 옵션이 실질 1개면 자동 선택.** 사전예약 상품은 차수가 품절로 빠지며 고를 게 하나만 남는데도 기본 미선택이라, 「바로구매」를 먼저 누른 고객이 "필수 옵션을 선택해주세요." 알럿에 튕긴다(2026-08-06 실측 하루 58건). 선택 가능한 옵션이 **정확히 1개**일 때만 발동, 추가상품(`addproduct_*`)은 미변경 |
 | `cart_fix.js` | GA4 add_to_cart / begin_checkout 보강 |
 | `cate_guard.js` | 모바일 카테고리 메뉴 JS 에러 가드(안정화) |
 | `icid_to_utm.js` | 내부유입(진열·카테고리) icid→utm 변환 |
