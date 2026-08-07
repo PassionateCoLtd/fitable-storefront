@@ -64,6 +64,11 @@
 
   // 3) 옵션 선택
   document.addEventListener('change', function (e) {
+    // 🔴 사람이 고른 것만 센다. 스크립트가 dispatch 한 change(isTrusted=false)는 제외 —
+    //    pdp_option_autoselect.js 가 실질 1개 옵션을 자동 선택하는데, 그걸 세면
+    //    option_select 가 PDP 조회수만큼 부풀어 '옵션까지 본 사람' 지표가 거짓이 된다.
+    //    (capture 단계라 bubbles:false 로도 여기 도달한다 — isTrusted 가 유일한 구분선)
+    if (!e.isTrusted) return;
     var s = e.target;
     if (s && s.matches && s.matches('select[option_select_element], select[product_option_area], .prd_option select')) {
       ev('option_select');
