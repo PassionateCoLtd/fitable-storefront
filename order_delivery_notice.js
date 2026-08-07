@@ -1,16 +1,13 @@
-/* order_delivery_notice.js — 출고일 고지 (장바구니·주문서 상단 안내 바) — 8월판
-   배경: 7/31 사전예약 종료 후 정가전환(8/1). 7월판(사전예약 취소조건 고지)은 8/1 00:00
-   자동 만료되어 8/2 현재 배송일 안내가 카트/주문서에 없는 공백 상태 → 8월판 신규 배포.
-   PDP 라이브 문구(126)와 동일하게 "8월 10일부터" 기준(사전예약 7/31 이전 결제분만 8/7 우선출고,
-   그 케이스는 이미 발송 대상이라 신규 결제 고객 대상 이 배너에선 단일 문구로 충분).
+/* order_delivery_notice.js — 출고일 고지 (장바구니·주문서 상단 안내 바) — 8월판 v2
+   배경: 7/31 사전예약 종료 후 정가전환(8/1), "~8월 10일부터 순차 출고" 안내로 시작.
+   8/3 09:15 창고(바로) 김정은님이 전량 출고 인원 추가투입을 확정 — 그날부터
+   순차출고가 아니라 상시 컷오프 방식(오후 4시 이전 결제=당일출고)으로 바뀌어 PDP와
+   함께 재작성. 날짜가 아니라 시각 컷오프 정책이라 만료 게이트 없이 상시 노출.
    렌더 조건: /order/ 경로 + 페이지에 오브제 와이드 풀업바 상품명 포함 시에만.
-   자동 만료: 8/10 출고 개시 후엔 "~부터 출고" 안내가 낡으므로 렌더 중단.
-   롤백: ScriptTag src를 이전 커밋(d75e956)으로 되돌리거나 DELETE. 전체 try/catch 격리. */
+   롤백: ScriptTag src를 이전 커밋으로 되돌리거나 DELETE. 전체 try/catch 격리. */
 (function () {
   'use strict';
   try {
-    // 8/10 00:00 KST 이후엔 "출고 예정" 안내가 낡음 — 자동 소멸.
-    if (Date.now() >= 1786287600000 /* 2026-08-10T00:00:00+09:00 */) return;
     if (!/\/order\/(basket|orderform)/.test(location.pathname)) return;
 
     var FONT = "'SUIT','Plus Jakarta Sans','Apple SD Gothic Neo','Noto Sans KR',sans-serif";
@@ -33,8 +30,8 @@
         var bar = document.createElement('div');
         bar.id = 'fit-delivery-notice';
         bar.innerHTML =
-          row('배송', B('8월 10일') + '부터 순차 출고') +
-          row('', '결제하신 순서 그대로, 하나씩 정성껏 보내드릴게요', 7, true);
+          row('배송', B('오후 4시') + ' 이전 결제 시 당일출고') +
+          row('', '오후 4시 이후 결제 건은 익일 출고돼요', 7, true);
         bar.style.cssText = 'background:#171716;padding:14px 16px;border-radius:0;' +
           'margin:10px 12px 4px;line-height:1.5;font-family:' + FONT + ';';
         var host = document.getElementById('contents') ||
