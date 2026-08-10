@@ -52,13 +52,23 @@
       if (t.closest('a[data-ref="pdp_kakao_sync_bottom"]')) { ev('cta_kakao_bottom'); return; }
       if (t.closest('#wpb-kakao-cta')) { ev('cta_kakao_hero'); return; }
     }
-    if (t.closest('#actionBuy,#actionBuyClone,#actionBuyCloneFixed,#action_buy_btn,.now_buy')) { ev('buy_click'); return; }
-    if (t.closest('#actionCart,#actionCartClone')) { ev('cart_click'); return; }
+    // 🔴 2026-08-11 스킨 개편 대응: 현행 버튼은 a.buy_btn / a.cart_btn (구 #actionBuy류 미존재 → 7/15부터 0건).
+    //    구 셀렉터도 유지(다른 스킨 페이지 방어). 실클릭만(isTrusted) 집계.
+    if (t.closest('#actionBuy,#actionBuyClone,#actionBuyCloneFixed,#action_buy_btn,.now_buy,a.buy_btn')) { if (e.isTrusted) ev('buy_click'); return; }
+    if (t.closest('#actionCart,#actionCartClone,a.cart_btn')) { if (e.isTrusted) ev('cart_click'); return; }
     var tab = t.closest('a[data-link^="#prd"]');
     if (tab) {
       var key = (tab.getAttribute('data-link') || '').replace('#', '');
       var slug = TABMAP[key] || key.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'etc';
       ev('tab_' + slug);
+      return;
+    }
+    // 🔴 2026-08-11 현행 탭 구조 대응(li.tab1~4, 앵커 없음 — 구 a[data-link]는 6월 개편 후 0건).
+    //    클래스 순서 = 상품정보/리뷰/Q&A/반품·교환정보 (PC·모바일 동일 실측 2026-08-11).
+    var tabLi = t.closest('li.tab1,li.tab2,li.tab3,li.tab4');
+    if (tabLi && e.isTrusted) {
+      var TABLI = { tab1: 'detail', tab2: 'review', tab3: 'qna', tab4: 'guide' };
+      for (var tk in TABLI) { if (tabLi.classList && tabLi.classList.contains(tk)) { ev('tab_' + TABLI[tk]); break; } }
     }
   }, true);
 
@@ -106,6 +116,73 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchReview);
   else watchReview();
+
+  // 5-b) 리뷰 위젯 상호작용 프록시 (2026-08-11) — 크레마 리뷰는 cross-origin iframe(review8.cre.ma)이라
+  //      내부 클릭(더보기·정렬·도움돼요)을 GA4가 직접 못 본다. 부모 문서에서 3가지 프록시로 근사:
+  //      review_click  = 리뷰 iframe 안을 클릭해 포커스가 넘어간 횟수(window blur + activeElement 판별, 세션 상한 10회)
+  //      review_expand = 리뷰 iframe 높이가 유의미하게 늘어난 횟수(더보기/사진열람/페이지전환 근사, 상한 10회)
+  //      review_dwell  = 렌더된 리뷰 위젯이 뷰포트에 3초+ 연속 노출(1회)
+  //      전부 무수술(리스너만). 크레마 위젯이 없는 상품에선 자동으로 아무것도 안 함.
+  try {
+    var rvIframes = function () {
+      var out = [], fr = document.getElementsByTagName('iframe');
+      for (var i = 0; i < fr.length; i++) { if (/cre\.ma/.test(fr[i].src || '')) out.push(fr[i]); }
+      return out;
+    };
+    // ① 클릭 진입: iframe 클릭 시 부모 window가 blur되고 activeElement가 그 iframe이 된다.
+    var rvClicks = 0;
+    window.addEventListener('blur', function () {
+      try {
+        var ae = document.activeElement;
+        if (ae && ae.tagName === 'IFRAME' && /cre\.ma/.test(ae.src || '') && rvClicks < 10) {
+          rvClicks++; ev('review_click');
+          // 같은 iframe 연속 클릭도 세기 위해 포커스를 부모로 되돌린다(화면 영향 없음)
+          setTimeout(function () { try { window.focus(); ae.blur(); } catch (e2) {} }, 300);
+        }
+      } catch (e1) {}
+    });
+    // ② 높이 증가(더보기·사진 열람 근사): 초기 렌더 후 +80px 이상 증가만 카운트
+    var rvExpands = 0;
+    var armResize = function () {
+      if (!('ResizeObserver' in window)) return;
+      rvIframes().forEach(function (f) {
+        if (f.__rvRO) return; f.__rvRO = 1;
+        var base = null;
+        var ro = new ResizeObserver(function (es) {
+          try {
+            var h = es[0].contentRect.height;
+            if (base === null) { if (h > 0) base = h; return; }
+            if (h > base + 80 && rvExpands < 10) { rvExpands++; ev('review_expand'); }
+            if (h > base) base = h;
+          } catch (e3) {}
+        });
+        ro.observe(f);
+      });
+    };
+    // ③ 리뷰 위젯 3초+ 체류(렌더된 위젯만: 높이 100px+)
+    var rvDwellDone = 0, rvDwellTimer = null;
+    var armDwell = function () {
+      if (!('IntersectionObserver' in window)) return;
+      rvIframes().forEach(function (f) {
+        if (f.__rvIO) return; f.__rvIO = 1;
+        var io = new IntersectionObserver(function (es) {
+          for (var i = 0; i < es.length; i++) {
+            var vis = es[i].isIntersecting && es[i].target.getBoundingClientRect().height > 100;
+            if (vis && !rvDwellDone && !rvDwellTimer) {
+              rvDwellTimer = setTimeout(function () { rvDwellDone = 1; ev('review_dwell'); }, 3000);
+            } else if (!vis && rvDwellTimer) { clearTimeout(rvDwellTimer); rvDwellTimer = null; }
+          }
+        }, { threshold: 0.3 });
+        io.observe(f);
+      });
+    };
+    // 크레마 iframe은 지연 생성 → 주기 재스캔(30초까지, 이후 정리)
+    var rvScanN = 0;
+    var rvScan = setInterval(function () {
+      try { armResize(); armDwell(); } catch (e4) {}
+      if (++rvScanN >= 10) clearInterval(rvScan);
+    }, 3000);
+  } catch (e) {}
 
   // 6) 섹션별 관심(도달+체류) — WPB(126) 본문은 lazy 주입이라 MutationObserver로 신규 이미지 포착.
   //    섹션 = 본문 이미지 파일명 verNNNN/<섹션>-<순번>의 앞자리(1~6). view=도달, dwell=섹션이 3초+ 연속 노출(실관심).
