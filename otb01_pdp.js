@@ -24,7 +24,7 @@
     form: 'https://docs.google.com/forms/d/e/1FAIpQLSc9UPRzbGt6gG8_wTQqXB75LZMai0jsncnYMw-wKjv13oUtJw/viewform',
     codeEntry: 'entry.2069746961',
     label: '사전예약 알림신청',
-    left: '12월 사전예약 오픈 · 9/14 마감',
+    left: '9월 14일 신청 마감',
     sessionKey: 'otb01_utm',
     showAfter: 0,            // 0 = 첫 화면부터 바로 노출(대표 지시 2026-09-02 — 한참 내려야 나오던 것)
     gifFix: { '_1788345209.gif': '/web/upload/NNEditor/20260902/695b19f34ce4fe3a351a9a2bbc9fa6bc.gif',
@@ -94,10 +94,10 @@
       'body{-webkit-text-size-adjust:100%;}' +
       '#otb01-bar{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:#161310;' +
       'display:none;align-items:center;justify-content:space-between;gap:16px;' +
-      'padding:12px 18px calc(12px + env(safe-area-inset-bottom));' +
+      'padding:12px 76px 12px 18px;padding-bottom:calc(12px + env(safe-area-inset-bottom));' +
       "font-family:'SUIT','Noto Sans KR','Apple SD Gothic Neo',sans-serif;" +
       'box-shadow:0 -6px 24px rgba(0,0,0,.28);}' +
-      '#otb01-bar .otb01-l{font-size:12.5px;line-height:1.45;color:#d8d2c8;min-width:0;}' +
+      '#otb01-bar .otb01-l{font-size:12.5px;line-height:1.35;color:#d8d2c8;white-space:nowrap;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;}' +
       '#otb01-bar .otb01-b{flex:0 0 auto;background:#A89887;color:#fff;border-radius:8px;' +
       'padding:14px 26px;font-size:15px;font-weight:700;text-decoration:none;white-space:nowrap;}' +
       // 모바일 오른쪽 76px 는 비워둔다 — 채널톡 상담 버튼이 그 자리에 떠서 CTA 「…받기」를 가린다(2026-09-02 실측)
