@@ -79,6 +79,8 @@
   }
   if (TARGETS.indexOf(pno()) === -1) return;
   if (window.__otb01pdp) return; window.__otb01pdp = 1;
+  /* 핵심 루틴이 죽으면 «조용히» 죽지 않게 — 광고 켜 놓고 구매버튼이 보이는 걸 모르면 안 된다 */
+  function warn(where, e) { try { console.warn('[otb01_pdp] ' + where + ' 실패:', e && e.message ? e.message : e); } catch (x) {} }
 
   /* ① 가림 — 리페인트 전에 먹도록 즉시 삽입 */
   try {
@@ -119,7 +121,7 @@
       '@media (max-width:520px){#otb01-bar{padding:10px 76px 10px 14px;padding-bottom:calc(10px + env(safe-area-inset-bottom));gap:10px;}' +
       '#otb01-bar .otb01-l{font-size:11.5px;}#otb01-bar .otb01-b{padding:13px 18px;font-size:14px;}}';
     (document.head || document.documentElement).appendChild(st);
-  } catch (e) {}
+  } catch (e) { warn('가림 CSS 주입', e); }
 
   /* 「상세페이지」 머리말 제거 — «무엇으로 그려졌든»(글자·그림·alt·가상요소) 자리로 자른다.
      세 번 실패한 이유: 전부 «상세페이지»라는 글자를 찾아 숨기려 했는데, 자동조종으로 여섯 번
@@ -152,7 +154,7 @@
         el.__otbSealed = 1;
         el.style.setProperty('display', 'none', 'important');
       }
-    } catch (e) {}
+    } catch (e) { warn('sealDetail', e); }
   }
 
   /* 머리말이 #prdDetail «바깥 바로 위»에 있을 경우의 보조 스윕.

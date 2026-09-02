@@ -375,7 +375,16 @@
         fbp: readCookie('_fbp'),
       };
 
+      /* 서버가 못 받으면 설문으로 «그냥 보내지 않는다». 1단계(연락처) 기록이 없으면 광고 신호도,
+         판정 분모도 같이 사라진다 — 조용히 잃는 것이 가장 나쁘다(코덱스 지적 2026-09-03).
+         한 번은 자동으로 다시 보내고, 그래도 안 되면 «다시 시도» 안내 + 설문 링크를 보조로 둔다. */
+      var attempt = 0;
+      function send() {
+      attempt++;
       postWithTimeout(CFG.ENDPOINT, payload, CFG.TIMEOUT_MS).then(function (result) {
+        if (!(result.ok && result.data && result.data.ok) && attempt < 2) {
+          setTimeout(send, 800); return;
+        }
         e.submitBtn.disabled = false;
         e.submitBtn.style.opacity = '1';
 
@@ -405,17 +414,29 @@
             if (!w) { location.href = surveyUrl; }
           };
         } else {
-          // 실패/타임아웃 — 신청 확정 화면 없이 곧바로 설문으로 보낸다(고객을 막지 않는다).
           var fallbackUrl = withPhone(
             (result.data && result.data.survey_url) || buildSurveyUrl(code, rawPhone), rawPhone);
           pushDL('otb01_pdp_signup_fail', {
             reason: result.reason || 'unknown', utm_source: utm.source,
             utm_content: utm.content, cta_location: ctaLocation, code: code
           });
-          hideModal();
-          location.href = fallbackUrl;
+          showError('잠시 연결이 원활하지 않습니다. 「사전예약 알림신청」을 한 번 더 눌러 주세요.');
+          /* 보조 통로 — 서버가 오래 죽어 있어도 고객 손에 설문은 쥐여준다(전화번호는 설문에도 들어간다) */
+          try {
+            var alt = document.getElementById('otb01-alt-survey');
+            if (!alt) {
+              alt = document.createElement('a'); alt.id = 'otb01-alt-survey';
+              alt.textContent = '계속 안 되면 설문으로 바로 가기';
+              alt.style.cssText = 'display:block;text-align:center;font-size:12px;color:#5b5f68;' +
+                'text-decoration:underline;margin-top:10px;';
+              e.formPanel.appendChild(alt);
+            }
+            alt.href = fallbackUrl; alt.target = '_blank'; alt.rel = 'noopener';
+          } catch (err) {}
         }
       });
+      }
+      send();
     }
 
     // ─── CTA 바인딩 (이벤트 위임 — 늦게 삽입되는 sticky CTA 도 잡음) ───
