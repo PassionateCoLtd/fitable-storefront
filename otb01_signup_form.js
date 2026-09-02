@@ -242,7 +242,7 @@
       consentCheck.type = 'checkbox';
       consentCheck.style.cssText = 'margin-top:2px;flex:none;width:16px;height:16px;cursor:pointer;';
       var consentText = document.createElement('span');
-      consentText.textContent = '[필수] 개인정보 수집·이용 동의 — 목적: 출시/결제 안내·설문 경품·응답 분석, ' +
+      consentText.textContent = '[필수] 개인정보 수집·이용 동의 — 목적: 사전예약 오픈 안내·할인쿠폰 지급·응답 분석, ' +
         '보유기간: 수집일로부터 3개월';
       consentLabel.appendChild(consentCheck);
       consentLabel.appendChild(consentText);
