@@ -91,7 +91,15 @@
          하나로 감싼 우리 본문이 「.cont 의 직계 자식」으로 그대로 걸린다(모바일 detail2 에서만 발동).
          스킨 전역 CSS 는 손대지 않는다 — 이 스크립트는 상품 176 에서만 도니 영향 범위가 176 뿐이다.
          id 와 div 를 같이 적어 상세 래퍼 id 가 바뀌어도 조용히 다시 깨지지 않게 한다. */
-      '#prdDetail .cont > #otb01-pdp,#prdDetail .cont > div{display:block!important;}' +
+      /* ⛔ 예전엔 `.cont > div` 를 통째로 되살렸다 — 스킨이 그 안에 무엇을 넣든 같이 살아났다.
+         우리 본문만 콕 집어 되살리고, :has() 한 줄로 «나중에 감싸는» 경우까지 대비한다.
+         :has() 를 못 쓰는 브라우저에선 그 줄만 무효가 된다(다른 줄은 그대로 산다). */
+      '#prdDetail .cont > *{display:none!important;}' +
+      '#prdDetail .cont > #otb01-d{display:block!important;}' +
+      '#prdDetail .cont > *:has(#otb01-d){display:block!important;}' +
+      /* 글자가 «가상요소»로 그려지는 경우 — JS 로는 못 지운다. CSS 로만 끌 수 있다. */
+      '#prdDetail::before,#prdDetail::after,' +
+      '#prdDetail .cont::before,#prdDetail .cont::after{content:none!important;}' +
       'body{-webkit-text-size-adjust:100%;}' +
       '#otb01-bar{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:#161310;' +
       'display:none;align-items:center;justify-content:space-between;gap:16px;' +
@@ -113,26 +121,68 @@
     (document.head || document.documentElement).appendChild(st);
   } catch (e) {}
 
-  /* 「상세페이지」 머리말 — 스킨이 «어느 태그로» 뱉는지 화면마다 다르다.
-     2026-09-03 실측: 대표 폰에는 보이는데 자동조종으로 6번 열어 본 DOM 에는 아예 없었다.
-     그래서 선택자로는 못 잡는다 → «그 한 단어만 든 요소»를 글자로 찾아 숨긴다.
-     ⛔ 우리 본문(#otb01-d)을 품은 요소는 건드리지 않는다 — 상세가 통째로 사라진다.
-     ⛔ display 는 !important 로 — 스킨의 `#prdDetail .cont > div{display:block!important}`
-        되받이 규칙이 있어서 그냥 inline 으로는 안 먹는다. */
-  var HEAD_WORDS = ['상세페이지', '상품상세페이지'];
-  function hideDetailHeading() {
+  /* 「상세페이지」 머리말 제거 — «무엇으로 그려졌든»(글자·그림·alt·가상요소) 자리로 자른다.
+     세 번 실패한 이유: 전부 «상세페이지»라는 글자를 찾아 숨기려 했는데, 자동조종으로 여섯 번
+     열어 본 DOM 에는 그 글자가 아예 없었다(대표 화면에만 있다). 글자를 못 믿으니 위치로 간다.
+     ⛔ 우리 본문(#otb01-d)과 그 조상은 절대 건드리지 않는다. 본문을 못 찾으면 즉시 종료한다
+        — 앞서 넓은 CSS 로 본문 제목 13개를 통째로 지운 사고가 있었다. 실패하면 «아무것도 안 함». */
+  function sealDetail() {
     try {
-      var root = document.getElementById('contents') || document.body;
-      var ns = root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,span,div,strong,b,em,li,a,dt,caption,legend');
-      for (var i = 0; i < ns.length; i++) {
-        var el = ns[i];
-        if (el.id === 'otb01-d' || el.id === 'otb01-pdp') continue;
-        var t = (el.textContent || '');
-        if (t.length > 20) continue;                 /* 긴 글은 머리말이 아니다 — 훑는 비용도 아낀다 */
-        t = t.replace(/\s/g, '');
-        if (HEAD_WORDS.indexOf(t) < 0) continue;
-        if (el.querySelector('#otb01-d,#otb01-pdp')) continue;
-        if (el.style.display !== 'none') el.style.setProperty('display', 'none', 'important');
+      var anchor = document.getElementById('otb01-d');
+      if (!anchor) return;
+      var scope = document.getElementById('prdDetail');
+      if (!scope || !scope.contains(anchor)) return;
+
+      /* 조상 사슬이 스킨 규칙에 눌려 있으면 되살린다. none 일 때만 손대서
+         원래 flex 인 컨테이너를 block 으로 부수지 않는다. */
+      var a = anchor.parentNode;
+      while (a && a.nodeType === 1 && a !== document.documentElement) {
+        if (getComputedStyle(a).display === 'none') a.style.setProperty('display', 'block', 'important');
+        if (a === scope) break;
+        a = a.parentNode;
+      }
+
+      var all = scope.querySelectorAll('*');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el === anchor || anchor.contains(el) || el.contains(anchor)) continue;
+        var tn = el.tagName;
+        if (tn === 'STYLE' || tn === 'SCRIPT' || tn === 'LINK') continue;
+        if (el.__otbSealed) continue;
+        el.__otbSealed = 1;
+        el.style.setProperty('display', 'none', 'important');
+      }
+    } catch (e) {}
+  }
+
+  /* 머리말이 #prdDetail «바깥 바로 위»에 있을 경우의 보조 스윕.
+     글자·이미지 alt·가상요소를 한 함수로 읽고, «공백 제거를 먼저» 한다
+     (앞 판에서 들여쓰기 공백 때문에 길이 가드에 걸려 통째로 건너뛰었다). */
+  var HEAD_WORDS = ['상세페이지', '상품상세페이지', '상세정보', '상품상세정보'];
+  function norm(x) { return String(x || '').replace(/[\s\u00a0]+/g, ''); }
+  function labelOf(el) {
+    var t = norm(el.textContent).slice(0, 40);
+    if (!t) { var im = el.querySelector('img[alt]'); if (im) t = norm(im.getAttribute('alt')); }
+    if (!t) {
+      try {
+        var b = getComputedStyle(el, '::before').content, c = getComputedStyle(el, '::after').content;
+        t = norm(((b && b !== 'none') ? b : '') + ((c && c !== 'none') ? c : '')).replace(/^["']|["']$/g, '');
+      } catch (e) {}
+    }
+    return t;
+  }
+  function sweepAbove() {
+    try {
+      var pd = document.getElementById('prdDetail'); if (!pd) return;
+      var anchor = document.getElementById('otb01-d');
+      var el = pd.previousElementSibling, hops = 0;
+      while (el && hops++ < 6) {
+        var r = el.getBoundingClientRect();
+        if (r.height > 0 && r.height < 120 && HEAD_WORDS.indexOf(labelOf(el)) >= 0 &&
+            !(anchor && el.contains(anchor))) {
+          el.style.setProperty('display', 'none', 'important');
+        }
+        el = el.previousElementSibling;
       }
     } catch (e) {}
   }
@@ -147,7 +197,7 @@
           if (ns[j].style.display !== 'none') ns[j].style.display = 'none';
         }
       }
-      hideDetailHeading();
+      sealDetail(); sweepAbove();
       ['#btn_restock', '.wish_btn a'].forEach(function (s) {
         var n = document.querySelector(s);
         if (n && n.getAttribute('onclick')) n.removeAttribute('onclick');
@@ -159,9 +209,22 @@
   /* 위 폴링은 6초에서 끝난다. 머리말이 그 뒤에 붙는 화면이 있어(대표 폰) 1분까지 더 지켜본다. */
   var slowTicks = 0;
   var slowPoll = setInterval(function () {
-    hideDetailHeading();
+    sealDetail(); sweepAbove();
     if (++slowTicks > 60) clearInterval(slowPoll);
   }, 1000);
+
+  /* 폴링이 끝난 뒤에 스킨·앱이 무언가를 «나중에» 끼워 넣는 경우까지 잡는다. */
+  try {
+    var mo = new MutationObserver(function () { sealDetail(); sweepAbove(); });
+    var start = function () {
+      var pd = document.getElementById('prdDetail');
+      if (pd) mo.observe(pd.parentNode || pd, { childList: true, subtree: true });
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+    else start();
+    window.addEventListener('load', function () { sealDetail(); sweepAbove(); });
+    window.addEventListener('pageshow', function () { sealDetail(); sweepAbove(); });
+  } catch (e) {}
 
   /* 유입경로 보존 — 처음 들어온 값만 남기고 덮어쓰지 않는다 */
   function utm() {
