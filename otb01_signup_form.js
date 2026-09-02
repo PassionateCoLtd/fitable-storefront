@@ -145,7 +145,10 @@
         var opts = {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          /* 브라우저 기본값은 다른 사이트로 갈 때 주소 뒷부분(utm)을 지워 보낸다 →
+             서버의 「광고에서 왔다」 대조가 영영 실패했다(2026-09-03 실측). 통째로 보낸다(주소에 비밀 없음). */
+          referrerPolicy: 'unsafe-url'
         };
         if (controller) opts.signal = controller.signal;
         try {
