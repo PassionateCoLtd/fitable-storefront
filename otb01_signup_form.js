@@ -249,7 +249,7 @@
       var submitBtn = document.createElement('button');
       submitBtn.id = 'otb01-submit';
       submitBtn.type = 'button';
-      submitBtn.textContent = '순번 신청하기';
+      submitBtn.textContent = '사전예약 알림신청';
       submitBtn.style.cssText = 'width:100%;padding:14px;font-size:15.5px;font-weight:700;color:#fff;' +
         'background:#0B0B0D;border:0;border-radius:10px;cursor:pointer;transition:opacity .15s;';
       // ⛔ 위임 리스너에 의존하지 말 것 — 아래 modal 의 stopPropagation 이 document 까지 못 가게 막는다.
@@ -259,7 +259,6 @@
       };
 
       var notice = document.createElement('div');
-      notice.textContent = '지금은 결제하지 않습니다';
       notice.style.cssText = 'text-align:center;font-size:11.5px;color:#9a9ea6;margin-top:10px;';
 
       formPanel.appendChild(title);

@@ -38,9 +38,9 @@
     '#totalProducts', '#totalPrice', '.free_delivery', '.price-wr', '.detail_custom_event',
     '.now_buy', '.xans-product-detail .infoArea > .xans-product-action.wish_btn',
     '.xans-product-detail .xans-product-option.option_wrap', '.menu_tab',
-    // 스킨이 상세 위에 붙이는 「상세페이지」 머리말 — 우리 본문이 곧 상세라 군더더기다
-    '.xans-product-detail .prd-detail > .title', '#prdDetail > .title', '.detail_title',
-    '.xans-product-additional .title', '.prd-detail h2', '#prdDetail h2',
+    // 스킨이 상세 위에 붙이는 「상세페이지」 머리말만 콕 집어 숨긴다.
+    // ⛔ '.prd-detail h2' 처럼 넓게 잡으면 «우리 본문의 큰 제목»까지 전부 사라진다(2026-09-03 사고).
+    '#prdDetail > .title', '.xans-product-detail > .prd-detail > .title', '.detail_title',
     /* 스킨 «사전예약» 모듈 — 값이 비어 「개」「%」만 덩그러니 뜨고(한정수량·할인율 미입력),
        버튼은 「로그인해야 한다」만 띄우고 로그인 페이지로 넘어가지도 않는다. 우리 CTA 와 역할도 겹친다.
        카운터(0명 알림 신청)까지 같이 가린다 — 이 버튼을 없앤 이상 영원히 0이라 정보가 아니라 결함이다. */
@@ -99,6 +99,9 @@
       'box-shadow:0 -6px 24px rgba(0,0,0,.28);}' +
       '#otb01-bar .otb01-l{font-size:12.5px;line-height:1.35;color:#d8d2c8;white-space:nowrap;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;}' +
       'body.otb01-bar-on #otb01-d{padding-bottom:96px;}' +
+      '#otb01-d{text-align:left!important;}' +
+      '#otb01-d .ctr,#otb01-d .ctr *{text-align:center!important;}' +
+      '#otb01-d h2,#otb01-d h3,#otb01-d p,#otb01-d .eb{display:block!important;visibility:visible!important;}' +
       '#otb01-bar .otb01-b{flex:0 0 auto;background:#A89887;color:#fff;border-radius:8px;' +
       'padding:14px 26px;font-size:15px;font-weight:700;text-decoration:none;white-space:nowrap;}' +
       // 모바일 오른쪽 76px 는 비워둔다 — 채널톡 상담 버튼이 그 자리에 떠서 CTA 「…받기」를 가린다(2026-09-02 실측)
