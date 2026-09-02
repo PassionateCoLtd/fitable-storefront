@@ -281,12 +281,6 @@
       var successTitle = document.createElement('div');
       successTitle.textContent = '알림 신청이 완료됐습니다';
       successTitle.style.cssText = 'font-size:18px;font-weight:700;color:#111114;margin:4px 0 8px;';
-      // 순번 — 200대 한정이라 «몇 번째인지»가 신청의 이유다. 서버가 준 값만 쓴다(못 받으면 줄을 숨긴다).
-      var successSeq = document.createElement('div');
-      successSeq.id = 'otb01-seq';
-      successSeq.style.cssText = 'display:none;font-size:15px;font-weight:700;color:#A8683C;' +
-        'margin:0 0 10px;letter-spacing:-.2px;';
-
       /* 쿠폰 수령 조건 + «먼저 알려준다» 약속.
          ⛔ 여기서 「12월」을 다시 말하지 않는다 — 신청을 막 끝낸 사람에게 석 달 뒤 날짜를 들이대면
             그 자리에서 나간다(대표 지시 2026-09-02). 일정은 상단·고정바에서 이미 말하고 있다. */
@@ -303,7 +297,6 @@
       surveyBtn.style.cssText = 'width:100%;padding:14px;font-size:15.5px;font-weight:700;color:#fff;' +
         'background:#2563EB;border:0;border-radius:10px;cursor:pointer;';
       successPanel.appendChild(successTitle);
-      successPanel.appendChild(successSeq);
       successPanel.appendChild(surveyBtn);
       successPanel.appendChild(successNote);
 
@@ -320,7 +313,7 @@
       els = {
         overlay: overlay, modal: modal, formPanel: formPanel, successPanel: successPanel,
         phoneInput: phoneInput, consentCheck: consentCheck, errorMsg: errorMsg,
-        submitBtn: submitBtn, surveyBtn: surveyBtn, successSeq: successSeq
+        submitBtn: submitBtn, surveyBtn: surveyBtn
       };
       return els;
     }
@@ -388,14 +381,9 @@
 
         if (result.ok && result.data && result.data.ok) {
           var surveyUrl = withPhone(result.data.survey_url || buildSurveyUrl(code, rawPhone), rawPhone);
-          // 순번은 서버가 준 숫자만 쓴다 — 브라우저에서 세지 않는다(사람마다 다른 값이 뜨면 신뢰를 잃는다).
-          var seq = result.data.seq;
-          if (typeof seq === 'number' && seq > 0) {
-            e.successSeq.textContent = seq + '번째로 신청되셨습니다 · 200대 한정';
-            e.successSeq.style.display = 'block';
-          } else {
-            e.successSeq.style.display = 'none';
-          }
+          /* ⛔ 「N번째로 신청되셨습니다」는 화면에 띄우지 않는다 —
+             «순번 예약을 한 것»으로 오해한다(대표 지시 2026-09-03).
+             서버 응답의 seq 는 그대로 받고 장부에도 남으니 집계는 영향 없다. */
           fireFbLead(ctaLocation, code);
           fireGtag('otb01_pdp_signup_submit', {
             utm_source: utm.source, utm_content: utm.content, cta_location: ctaLocation, code: code
