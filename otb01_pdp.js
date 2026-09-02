@@ -56,7 +56,8 @@
       '#otb01-bar .otb01-l{font-size:12.5px;line-height:1.45;color:#d8d2c8;min-width:0;}' +
       '#otb01-bar .otb01-b{flex:0 0 auto;background:#A89887;color:#fff;border-radius:8px;' +
       'padding:14px 26px;font-size:15px;font-weight:700;text-decoration:none;white-space:nowrap;}' +
-      '@media (max-width:520px){#otb01-bar{padding:10px 14px calc(10px + env(safe-area-inset-bottom));gap:10px;}' +
+      // 모바일 오른쪽 76px 는 비워둔다 — 채널톡 상담 버튼이 그 자리에 떠서 CTA 「…받기」를 가린다(2026-09-02 실측)
+      '@media (max-width:520px){#otb01-bar{padding:10px 76px 10px 14px;padding-bottom:calc(10px + env(safe-area-inset-bottom));gap:10px;}' +
       '#otb01-bar .otb01-l{font-size:11.5px;}#otb01-bar .otb01-b{padding:13px 18px;font-size:14px;}}';
     (document.head || document.documentElement).appendChild(st);
   } catch (e) {}
