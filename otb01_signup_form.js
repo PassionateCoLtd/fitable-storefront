@@ -211,7 +211,12 @@
 
       var title = document.createElement('div');
       title.textContent = '사전예약 알림신청';
-      title.style.cssText = 'font-size:18px;font-weight:700;color:#111114;margin:4px 0 14px;';
+      title.style.cssText = 'font-size:18px;font-weight:700;color:#111114;margin:4px 0 6px;';
+
+      // 번호만 받는 화면이라 «왜 주는지»가 없으면 이탈한다 — 한 줄로 약속을 적는다(대표 지시 2026-09-03).
+      var titleSub = document.createElement('div');
+      titleSub.textContent = '사전예약 오픈 시 가장 먼저 안내드립니다.';
+      titleSub.style.cssText = 'font-size:13px;color:#5b5f68;line-height:1.5;margin:0 0 14px;';
 
       var phoneInput = document.createElement('input');
       phoneInput.id = 'otb01-phone';
@@ -262,6 +267,7 @@
       notice.style.cssText = 'text-align:center;font-size:11.5px;color:#9a9ea6;margin-top:10px;';
 
       formPanel.appendChild(title);
+      formPanel.appendChild(titleSub);
       formPanel.appendChild(phoneInput);
       formPanel.appendChild(consentLabel);
       formPanel.appendChild(errorMsg);
@@ -273,7 +279,7 @@
       successPanel.id = 'otb01-success';
       successPanel.style.cssText = 'display:none;text-align:center;';
       var successTitle = document.createElement('div');
-      successTitle.textContent = '순번이 확정됐습니다';
+      successTitle.textContent = '알림 신청이 완료됐습니다';
       successTitle.style.cssText = 'font-size:18px;font-weight:700;color:#111114;margin:4px 0 8px;';
       // 순번 — 200대 한정이라 «몇 번째인지»가 신청의 이유다. 서버가 준 값만 쓴다(못 받으면 줄을 숨긴다).
       var successSeq = document.createElement('div');
@@ -281,18 +287,15 @@
       successSeq.style.cssText = 'display:none;font-size:15px;font-weight:700;color:#A8683C;' +
         'margin:0 0 10px;letter-spacing:-.2px;';
 
-      var successSub = document.createElement('div');
-      successSub.textContent = '1분 설문에 답하고 3만원 할인쿠폰까지 받아가세요';
-      successSub.style.cssText = 'font-size:13px;color:#5b5f68;margin-bottom:14px;line-height:1.5;';
-
       /* 쿠폰 수령 조건 + «먼저 알려준다» 약속.
          ⛔ 여기서 「12월」을 다시 말하지 않는다 — 신청을 막 끝낸 사람에게 석 달 뒤 날짜를 들이대면
             그 자리에서 나간다(대표 지시 2026-09-02). 일정은 상단·고정바에서 이미 말하고 있다. */
       var successNote = document.createElement('div');
-      successNote.textContent = '할인쿠폰은 문자로 보내드리는 시리얼 번호입니다. ' +
-        '회원가입 후 등록하시면 사전예약 결제에 바로 쓰실 수 있어요. ' +
-        '예약이 열리면 순번대로 가장 먼저 알려드립니다.';
-      successNote.style.cssText = 'font-size:11.5px;color:#9a9ea6;margin-bottom:18px;line-height:1.5;';
+      successNote.textContent = '할인쿠폰은 문자로 보내드리는 시리얼 번호입니다.\n' +
+        '회원가입 후 등록하시면 사전예약 결제에 바로 쓰실 수 있어요.\n' +
+        '사전예약이 열리면 신청하신 순서대로 가장 먼저 알려드립니다.';
+      successNote.style.cssText = 'font-size:11.5px;color:#9a9ea6;margin:16px 0 18px;line-height:1.7;' +
+        'white-space:pre-line;';
       var surveyBtn = document.createElement('button');
       surveyBtn.id = 'otb01-survey-btn';
       surveyBtn.type = 'button';
@@ -301,7 +304,6 @@
         'background:#2563EB;border:0;border-radius:10px;cursor:pointer;';
       successPanel.appendChild(successTitle);
       successPanel.appendChild(successSeq);
-      successPanel.appendChild(successSub);
       successPanel.appendChild(surveyBtn);
       successPanel.appendChild(successNote);
 
