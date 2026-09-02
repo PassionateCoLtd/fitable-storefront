@@ -26,6 +26,7 @@
       ENDPOINT: 'https://fitable-dashboard.ngrok.app/api/otb01/signup',
       VIEWFORM_URL: 'https://docs.google.com/forms/d/e/1FAIpQLSc9UPRzbGt6gG8_wTQqXB75LZMai0jsncnYMw-wKjv13oUtJw/viewform',
       CONFIRM_ENTRY: 'entry.2069746961',
+      PHONE_ENTRY: 'entry.1277735863',   // 설문 「휴대폰 번호」 칸 — 신청에서 받은 값을 그대로 채운다
       DEFAULT_SOURCE: 'direct',
       DEFAULT_CONTENT: 'none',
       SESSION_KEY: 'otb01_utm',
@@ -37,10 +38,26 @@
       return String(raw || '').replace(/[^A-Za-z0-9_.\-]/g, '').slice(0, 100);
     }
 
-    function buildSurveyUrl(code) {
+    /* 확인 코드 + 휴대폰 번호를 미리 채운 설문 주소 — 신청에서 받은 번호를 또 묻지 않는다.
+       ⚠️ 구글 로그인 상태로 «작성 중이던 응답»이 남아 있으면 구글이 초안을 복원하며
+          주소의 프리필을 통째로 버린다(2026-09-02 실측). 비로그인 사용자에겐 정상 반영. */
+    function buildSurveyUrl(code, phone) {
+      var q = [];
       var c = sanitizeCode(code);
-      if (!c) return CFG.VIEWFORM_URL;
-      return CFG.VIEWFORM_URL + '?usp=pp_url&' + CFG.CONFIRM_ENTRY + '=' + encodeURIComponent(c);
+      if (c) q.push(CFG.CONFIRM_ENTRY + '=' + encodeURIComponent(c));
+      var p = String(phone || '').replace(/\D/g, '');
+      if (p.length >= 10 && p.length <= 11) q.push(CFG.PHONE_ENTRY + '=' + encodeURIComponent(p));
+      if (!q.length) return CFG.VIEWFORM_URL;
+      return CFG.VIEWFORM_URL + '?usp=pp_url&' + q.join('&');
+    }
+
+    /* 서버가 준 설문 주소에 휴대폰 번호만 덧붙인다(확인 코드는 서버가 이미 붙여 준다). */
+    function withPhone(url, phone) {
+      var p = String(phone || '').replace(/\D/g, '');
+      if (!url || p.length < 10 || p.length > 11) return url;
+      if (url.indexOf(CFG.PHONE_ENTRY + '=') !== -1) return url;
+      return url + (url.indexOf('?') === -1 ? '?usp=pp_url&' : '&') +
+             CFG.PHONE_ENTRY + '=' + encodeURIComponent(p);
     }
 
     // KST yymmddHHMM (기기 로컬 타임존과 무관하게 항상 한국시간 기준)
@@ -253,18 +270,32 @@
       var successTitle = document.createElement('div');
       successTitle.textContent = '순번이 확정됐습니다';
       successTitle.style.cssText = 'font-size:18px;font-weight:700;color:#111114;margin:4px 0 8px;';
+      // 순번 — 200대 한정이라 «몇 번째인지»가 신청의 이유다. 서버가 준 값만 쓴다(못 받으면 줄을 숨긴다).
+      var successSeq = document.createElement('div');
+      successSeq.id = 'otb01-seq';
+      successSeq.style.cssText = 'display:none;font-size:15px;font-weight:700;color:#A8683C;' +
+        'margin:0 0 10px;letter-spacing:-.2px;';
+
       var successSub = document.createElement('div');
-      successSub.textContent = '30초 설문에 답하고 3만원 쿠폰까지 받아가세요';
-      successSub.style.cssText = 'font-size:13px;color:#5b5f68;margin-bottom:18px;line-height:1.5;';
+      successSub.textContent = '1분 설문에 답하고 3만원 할인쿠폰까지 받아가세요';
+      successSub.style.cssText = 'font-size:13px;color:#5b5f68;margin-bottom:14px;line-height:1.5;';
+
+      // 쿠폰 수령 조건 — 문자로 시리얼 번호를 보내고, 회원가입 후 등록해야 결제에 적용된다.
+      var successNote = document.createElement('div');
+      successNote.textContent = '할인쿠폰은 문자로 보내드리는 시리얼 번호입니다. ' +
+        '자사몰 회원가입 후 등록하시면 12월 사전예약 결제에 적용됩니다.';
+      successNote.style.cssText = 'font-size:11.5px;color:#9a9ea6;margin-bottom:18px;line-height:1.5;';
       var surveyBtn = document.createElement('button');
       surveyBtn.id = 'otb01-survey-btn';
       surveyBtn.type = 'button';
-      surveyBtn.textContent = '30초 설문하고 3만원 쿠폰 받기';
+      surveyBtn.textContent = '1분 설문하고 3만원 할인쿠폰 받기';
       surveyBtn.style.cssText = 'width:100%;padding:14px;font-size:15.5px;font-weight:700;color:#fff;' +
         'background:#2563EB;border:0;border-radius:10px;cursor:pointer;';
       successPanel.appendChild(successTitle);
+      successPanel.appendChild(successSeq);
       successPanel.appendChild(successSub);
       successPanel.appendChild(surveyBtn);
+      successPanel.appendChild(successNote);
 
       modal.appendChild(closeBtn);
       modal.appendChild(formPanel);
@@ -279,7 +310,7 @@
       els = {
         overlay: overlay, modal: modal, formPanel: formPanel, successPanel: successPanel,
         phoneInput: phoneInput, consentCheck: consentCheck, errorMsg: errorMsg,
-        submitBtn: submitBtn, surveyBtn: surveyBtn
+        submitBtn: submitBtn, surveyBtn: surveyBtn, successSeq: successSeq
       };
       return els;
     }
@@ -344,7 +375,15 @@
         e.submitBtn.style.opacity = '1';
 
         if (result.ok && result.data && result.data.ok) {
-          var surveyUrl = result.data.survey_url || buildSurveyUrl(code);
+          var surveyUrl = withPhone(result.data.survey_url || buildSurveyUrl(code, rawPhone), rawPhone);
+          // 순번은 서버가 준 숫자만 쓴다 — 브라우저에서 세지 않는다(사람마다 다른 값이 뜨면 신뢰를 잃는다).
+          var seq = result.data.seq;
+          if (typeof seq === 'number' && seq > 0) {
+            e.successSeq.textContent = seq + '번째로 신청되셨습니다 · 200대 한정';
+            e.successSeq.style.display = 'block';
+          } else {
+            e.successSeq.style.display = 'none';
+          }
           fireFbLead(ctaLocation, code);
           fireGtag('otb01_pdp_signup_submit', {
             utm_source: utm.source, utm_content: utm.content, cta_location: ctaLocation, code: code
@@ -362,7 +401,8 @@
           };
         } else {
           // 실패/타임아웃 — 신청 확정 화면 없이 곧바로 설문으로 보낸다(고객을 막지 않는다).
-          var fallbackUrl = (result.data && result.data.survey_url) || buildSurveyUrl(code);
+          var fallbackUrl = withPhone(
+            (result.data && result.data.survey_url) || buildSurveyUrl(code, rawPhone), rawPhone);
           pushDL('otb01_pdp_signup_fail', {
             reason: result.reason || 'unknown', utm_source: utm.source,
             utm_content: utm.content, cta_location: ctaLocation, code: code
