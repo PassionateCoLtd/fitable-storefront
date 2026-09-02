@@ -38,6 +38,9 @@
     '#totalProducts', '#totalPrice', '.free_delivery', '.price-wr', '.detail_custom_event',
     '.now_buy', '.xans-product-detail .infoArea > .xans-product-action.wish_btn',
     '.xans-product-detail .xans-product-option.option_wrap', '.menu_tab',
+    // 스킨이 상세 위에 붙이는 「상세페이지」 머리말 — 우리 본문이 곧 상세라 군더더기다
+    '.xans-product-detail .prd-detail > .title', '#prdDetail > .title', '.detail_title',
+    '.xans-product-additional .title', '.prd-detail h2', '#prdDetail h2',
     /* 스킨 «사전예약» 모듈 — 값이 비어 「개」「%」만 덩그러니 뜨고(한정수량·할인율 미입력),
        버튼은 「로그인해야 한다」만 띄우고 로그인 페이지로 넘어가지도 않는다. 우리 CTA 와 역할도 겹친다.
        카운터(0명 알림 신청)까지 같이 가린다 — 이 버튼을 없앤 이상 영원히 0이라 정보가 아니라 결함이다. */
