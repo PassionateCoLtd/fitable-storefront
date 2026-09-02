@@ -142,7 +142,8 @@
       var cd = code(loc);
       a.href = CFG.form + '?usp=pp_url&' + CFG.codeEntry + '=' + encodeURIComponent(cd);
       a.target = '_blank'; a.rel = 'noopener';
-      if (window.fbq) window.fbq('track', 'Lead', { content_name: 'otb01', cta_location: loc }, { eventID: 'otb01_' + cd });
+      /* 픽셀 Lead 는 여기서 쏘지 않는다 — 실제 «연락처 제출» 시점에만(otb01_signup_form.js).
+         버튼만 눌러도 잡으면 광고 최적화가 «누르기만 하는 사람»을 학습한다. */
       if (typeof gtag === 'function') gtag('event', 'otb01_pdp_cta_' + loc, { send_to: 'G-V7D156FCFX', transport_type: 'beacon' });
       (window.dataLayer = window.dataLayer || []).push({ event: 'otb01_cta_click', cta_location: loc, otb01_code: cd });
     } catch (err) {}
