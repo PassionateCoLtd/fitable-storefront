@@ -24,7 +24,8 @@
     form: 'https://docs.google.com/forms/d/e/1FAIpQLSc9UPRzbGt6gG8_wTQqXB75LZMai0jsncnYMw-wKjv13oUtJw/viewform',
     codeEntry: 'entry.2069746961',
     label: '사전예약 알림신청',
-    left: '9월 14일 신청 마감',
+    barTitle: '테이블 바이크 루프',
+    barSub: '9월 14일 신청 마감',
     sessionKey: 'otb01_utm',
     showAfter: 0,            // 0 = 첫 화면부터 바로 노출(대표 지시 2026-09-02 — 한참 내려야 나오던 것)
     gifFix: { '_1788345209.gif': '/web/upload/NNEditor/20260902/695b19f34ce4fe3a351a9a2bbc9fa6bc.gif',
@@ -94,10 +95,12 @@
       'body{-webkit-text-size-adjust:100%;}' +
       '#otb01-bar{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:#161310;' +
       'display:none;align-items:center;justify-content:space-between;gap:16px;' +
-      'padding:12px 76px 12px 18px;padding-bottom:calc(12px + env(safe-area-inset-bottom));' +
+      'padding:11px 76px 11px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom));' +
       "font-family:'SUIT','Noto Sans KR','Apple SD Gothic Neo',sans-serif;" +
       'box-shadow:0 -6px 24px rgba(0,0,0,.28);}' +
-      '#otb01-bar .otb01-l{font-size:12.5px;line-height:1.35;color:#d8d2c8;white-space:nowrap;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;}' +
+      '#otb01-bar .otb01-l{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px;}' +
+      '#otb01-bar .otb01-t{font-size:13px;font-weight:700;color:#f0ece6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em;}' +
+      '#otb01-bar .otb01-s{font-size:11.5px;color:#b3aa9f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
       'body.otb01-bar-on #otb01-d{padding-bottom:96px;}' +
       '#otb01-d{text-align:left!important;}' +
       '#otb01-d .ctr,#otb01-d .ctr *{text-align:center!important;}' +
@@ -164,7 +167,11 @@
     var b = document.createElement('div');
     b.id = 'otb01-bar';
     var l = document.createElement('div'); l.className = 'otb01-l';
-    l.appendChild(document.createTextNode(CFG.left));
+    var t1 = document.createElement('span'); t1.className = 'otb01-t';
+    t1.appendChild(document.createTextNode(CFG.barTitle));
+    var t2 = document.createElement('span'); t2.className = 'otb01-s';
+    t2.appendChild(document.createTextNode(CFG.barSub));
+    l.appendChild(t1); l.appendChild(t2);
     var a = document.createElement('a'); a.className = 'otb01-b';
     a.setAttribute('data-otb-cta', 'sticky');
     a.href = CFG.form; a.target = '_blank'; a.rel = 'noopener';
