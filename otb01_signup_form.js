@@ -120,8 +120,13 @@
 
     function fireFbLead(ctaLocation, code) {
       try {
-        if (typeof window.fbq === 'function') {
+        /* 같은 방문에서 두 번 이상 제출해도 광고 신호는 한 번만 보낸다.
+           안 그러면 메타가 실제 신청보다 많은 수를 학습한다. (2026-09-02) */
+        var already = false;
+        try { already = sessionStorage.getItem('otb01_lead_sent') === '1'; } catch (e2) {}
+        if (!already && typeof window.fbq === 'function') {
           window.fbq('track', 'Lead', { content_name: 'otb01', cta_location: ctaLocation }, { eventID: 'otb01_' + code });
+          try { sessionStorage.setItem('otb01_lead_sent', '1'); } catch (e3) {}
         }
       } catch (e) {}
     }
@@ -393,14 +398,19 @@
           });
           pushDL('otb01_pdp_signup_submit', {
             utm_source: utm.source, utm_content: utm.content, cta_location: ctaLocation, code: code,
-            dup: !!result.data.dup
+            dup: false   /* 서버가 더는 알려주지 않는다(번호 조회 통로 차단) */
           });
           e.formPanel.style.display = 'none';
           e.successPanel.style.display = 'block';
           e.surveyBtn.onclick = function () {
             fireGtag('otb01_pdp_survey_open', { cta_location: ctaLocation, code: code });
             pushDL('otb01_pdp_survey_open', { cta_location: ctaLocation, code: code });
-            try { window.open(surveyUrl, '_blank'); } catch (err) { location.href = surveyUrl; }
+            /* 인스타·페북 앱 안 브라우저는 새 창을 자주 막는다. 막히면 예외가 아니라
+               null 이 돌아와 catch 에 안 걸리고 «눌러도 아무 일이 없는» 상태가 된다.
+               설문 응답이 구조적으로 0 이 되므로 같은 창 이동으로 되받는다. (2026-09-02) */
+            var w = null;
+            try { w = window.open(surveyUrl, '_blank'); } catch (err) { w = null; }
+            if (!w) { location.href = surveyUrl; }
           };
         } else {
           // 실패/타임아웃 — 신청 확정 화면 없이 곧바로 설문으로 보낸다(고객을 막지 않는다).

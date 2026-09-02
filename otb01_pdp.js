@@ -126,10 +126,16 @@
     try {
       var q = new URLSearchParams(location.search);
       var s = q.get('utm_source'), c = q.get('utm_content');
+      /* 저장 형식은 신청폼(otb01_signup_form.js)과 «반드시» 같아야 한다 — {source, content}.
+         모양이 갈리면 서로의 값을 못 읽어 광고로 들어온 사람이 direct 로 기록된다.
+         그 값이 곧 판정 분모라 CPL 이 통째로 틀어진다. (2026-09-02 보안점검) */
       var saved = JSON.parse(sessionStorage.getItem(CFG.sessionKey) || 'null');
-      if (!saved && (s || c)) { saved = { s: s || '', c: c || '' }; sessionStorage.setItem(CFG.sessionKey, JSON.stringify(saved)); }
-      return saved || { s: '', c: '' };
-    } catch (e) { return { s: '', c: '' }; }
+      if ((!saved || !saved.source) && (s || c)) {
+        saved = { source: s || '', content: c || '' };
+        sessionStorage.setItem(CFG.sessionKey, JSON.stringify(saved));
+      }
+      return saved || { source: '', content: '' };
+    } catch (e) { return { source: '', content: '' }; }
   }
   function stamp() {
     var d = new Date(Date.now() + (new Date().getTimezoneOffset() * 60000) + 32400000);
@@ -138,7 +144,7 @@
   }
   function code(loc) {
     var u = utm();
-    return [(u.s || 'direct'), (u.c || 'none'), loc, stamp()]
+    return [(u.source || 'direct'), (u.content || 'none'), loc, stamp()]
       .join('-').replace(/[^A-Za-z0-9_.\-]/g, '_').slice(0, 90);
   }
   function link(loc) {
