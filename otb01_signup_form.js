@@ -287,7 +287,7 @@
       var successNote = document.createElement('div');
       successNote.textContent = '할인쿠폰은 문자로 보내드리는 시리얼 번호입니다.\n' +
         '회원가입 후 등록하시면 사전예약 결제에 바로 쓰실 수 있어요.\n' +
-        '사전예약이 열리면 신청하신 순서대로 가장 먼저 알려드립니다.';
+        '사전예약이 열리면 가장 먼저 알려드립니다.';
       successNote.style.cssText = 'font-size:11.5px;color:#9a9ea6;margin:16px 0 18px;line-height:1.7;' +
         'white-space:pre-line;';
       var surveyBtn = document.createElement('button');
