@@ -209,7 +209,7 @@
       formPanel.id = 'otb01-form-panel';
 
       var title = document.createElement('div');
-      title.textContent = '얼리버드 순번 받기';
+      title.textContent = '사전예약 알림신청';
       title.style.cssText = 'font-size:18px;font-weight:700;color:#111114;margin:4px 0 14px;';
 
       var phoneInput = document.createElement('input');

@@ -23,8 +23,8 @@
   var CFG = {
     form: 'https://docs.google.com/forms/d/e/1FAIpQLSc9UPRzbGt6gG8_wTQqXB75LZMai0jsncnYMw-wKjv13oUtJw/viewform',
     codeEntry: 'entry.2069746961',
-    label: '얼리버드 순번 받기',
-    left: '12월 사전예약 오픈 · 200대 한정',
+    label: '사전예약 알림신청',
+    left: '12월 사전예약 오픈 · 9/14 마감',
     sessionKey: 'otb01_utm',
     showAfter: 0,            // 0 = 첫 화면부터 바로 노출(대표 지시 2026-09-02 — 한참 내려야 나오던 것)
     gifFix: { '_1788345209.gif': '/web/upload/NNEditor/20260902/695b19f34ce4fe3a351a9a2bbc9fa6bc.gif',
