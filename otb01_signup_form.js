@@ -229,6 +229,11 @@
       submitBtn.textContent = '순번 신청하기';
       submitBtn.style.cssText = 'width:100%;padding:14px;font-size:15.5px;font-weight:700;color:#fff;' +
         'background:#0B0B0D;border:0;border-radius:10px;cursor:pointer;transition:opacity .15s;';
+      // ⛔ 위임 리스너에 의존하지 말 것 — 아래 modal 의 stopPropagation 이 document 까지 못 가게 막는다.
+      //    (2026-09-02 실측: 버튼을 눌러도 신청이 통째로 안 나갔다. closeBtn·surveyBtn 처럼 직접 바인딩한다.)
+      submitBtn.onclick = function () {
+        submitSignup(modal.getAttribute('data-cta-location') || 'top');
+      };
 
       var notice = document.createElement('div');
       notice.textContent = '지금은 결제하지 않습니다';
