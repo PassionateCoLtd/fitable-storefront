@@ -280,10 +280,13 @@
       successSub.textContent = '1분 설문에 답하고 3만원 할인쿠폰까지 받아가세요';
       successSub.style.cssText = 'font-size:13px;color:#5b5f68;margin-bottom:14px;line-height:1.5;';
 
-      // 쿠폰 수령 조건 — 문자로 시리얼 번호를 보내고, 회원가입 후 등록해야 결제에 적용된다.
+      /* 쿠폰 수령 조건 + «먼저 알려준다» 약속.
+         ⛔ 여기서 「12월」을 다시 말하지 않는다 — 신청을 막 끝낸 사람에게 석 달 뒤 날짜를 들이대면
+            그 자리에서 나간다(대표 지시 2026-09-02). 일정은 상단·고정바에서 이미 말하고 있다. */
       var successNote = document.createElement('div');
       successNote.textContent = '할인쿠폰은 문자로 보내드리는 시리얼 번호입니다. ' +
-        '자사몰 회원가입 후 등록하시면 12월 사전예약 결제에 적용됩니다.';
+        '회원가입 후 등록하시면 사전예약 결제에 바로 쓰실 수 있어요. ' +
+        '예약이 열리면 순번대로 가장 먼저 알려드립니다.';
       successNote.style.cssText = 'font-size:11.5px;color:#9a9ea6;margin-bottom:18px;line-height:1.5;';
       var surveyBtn = document.createElement('button');
       surveyBtn.id = 'otb01-survey-btn';
