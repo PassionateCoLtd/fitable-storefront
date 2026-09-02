@@ -113,6 +113,30 @@
     (document.head || document.documentElement).appendChild(st);
   } catch (e) {}
 
+  /* 「상세페이지」 머리말 — 스킨이 «어느 태그로» 뱉는지 화면마다 다르다.
+     2026-09-03 실측: 대표 폰에는 보이는데 자동조종으로 6번 열어 본 DOM 에는 아예 없었다.
+     그래서 선택자로는 못 잡는다 → «그 한 단어만 든 요소»를 글자로 찾아 숨긴다.
+     ⛔ 우리 본문(#otb01-d)을 품은 요소는 건드리지 않는다 — 상세가 통째로 사라진다.
+     ⛔ display 는 !important 로 — 스킨의 `#prdDetail .cont > div{display:block!important}`
+        되받이 규칙이 있어서 그냥 inline 으로는 안 먹는다. */
+  var HEAD_WORDS = ['상세페이지', '상품상세페이지'];
+  function hideDetailHeading() {
+    try {
+      var root = document.getElementById('contents') || document.body;
+      var ns = root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,span,div,strong,b,em,li,a,dt,caption,legend');
+      for (var i = 0; i < ns.length; i++) {
+        var el = ns[i];
+        if (el.id === 'otb01-d' || el.id === 'otb01-pdp') continue;
+        var t = (el.textContent || '');
+        if (t.length > 20) continue;                 /* 긴 글은 머리말이 아니다 — 훑는 비용도 아낀다 */
+        t = t.replace(/\s/g, '');
+        if (HEAD_WORDS.indexOf(t) < 0) continue;
+        if (el.querySelector('#otb01-d,#otb01-pdp')) continue;
+        if (el.style.display !== 'none') el.style.setProperty('display', 'none', 'important');
+      }
+    } catch (e) {}
+  }
+
   /* 스킨이 나중에 붙이는 요소 대비 — 지우지 않고 숨기기만, 짧게 폴링 */
   var ticks = 0;
   var poll = setInterval(function () {
@@ -123,6 +147,7 @@
           if (ns[j].style.display !== 'none') ns[j].style.display = 'none';
         }
       }
+      hideDetailHeading();
       ['#btn_restock', '.wish_btn a'].forEach(function (s) {
         var n = document.querySelector(s);
         if (n && n.getAttribute('onclick')) n.removeAttribute('onclick');
@@ -130,6 +155,13 @@
     } catch (e) {}
     if (++ticks > 40) clearInterval(poll);
   }, 150);
+
+  /* 위 폴링은 6초에서 끝난다. 머리말이 그 뒤에 붙는 화면이 있어(대표 폰) 1분까지 더 지켜본다. */
+  var slowTicks = 0;
+  var slowPoll = setInterval(function () {
+    hideDetailHeading();
+    if (++slowTicks > 60) clearInterval(slowPoll);
+  }, 1000);
 
   /* 유입경로 보존 — 처음 들어온 값만 남기고 덮어쓰지 않는다 */
   function utm() {
