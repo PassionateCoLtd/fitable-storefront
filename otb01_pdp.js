@@ -98,6 +98,7 @@
       "font-family:'SUIT','Noto Sans KR','Apple SD Gothic Neo',sans-serif;" +
       'box-shadow:0 -6px 24px rgba(0,0,0,.28);}' +
       '#otb01-bar .otb01-l{font-size:12.5px;line-height:1.35;color:#d8d2c8;white-space:nowrap;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;}' +
+      'body.otb01-bar-on #otb01-d{padding-bottom:96px;}' +
       '#otb01-bar .otb01-b{flex:0 0 auto;background:#A89887;color:#fff;border-radius:8px;' +
       'padding:14px 26px;font-size:15px;font-weight:700;text-decoration:none;white-space:nowrap;}' +
       // 모바일 오른쪽 76px 는 비워둔다 — 채널톡 상담 버튼이 그 자리에 떠서 CTA 「…받기」를 가린다(2026-09-02 실측)
@@ -175,7 +176,9 @@
         var past = (window.pageYOffset || doc.scrollTop) >= (doc.scrollHeight - window.innerHeight) * CFG.showAfter;
         var atEnd = false;
         if (bottom) { var r = bottom.getBoundingClientRect(); atEnd = r.top < window.innerHeight && r.bottom > 0; }
-        b.style.display = (past && !atEnd) ? 'flex' : 'none';
+        var on = past && !atEnd;
+        b.style.display = on ? 'flex' : 'none';
+        try { document.body.classList[on ? 'add' : 'remove']('otb01-bar-on'); } catch (e2) {}
       } catch (e) {}
     }
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -195,7 +198,7 @@
       a.target = '_blank'; a.rel = 'noopener';
       /* 픽셀 Lead 는 여기서 쏘지 않는다 — 실제 «연락처 제출» 시점에만(otb01_signup_form.js).
          버튼만 눌러도 잡으면 광고 최적화가 «누르기만 하는 사람»을 학습한다. */
-      if (typeof gtag === 'function') gtag('event', 'otb01_pdp_cta_' + loc, { send_to: 'G-V7D156FCFX', transport_type: 'beacon' });
+      /* GA4 버튼클릭은 pdp_track.js 가 같은 이름으로 이미 보낸다 — 여기서 또 보내면 두 번 세어진다 */
       (window.dataLayer = window.dataLayer || []).push({ event: 'otb01_cta_click', cta_location: loc, otb01_code: cd });
     } catch (err) {}
   }, true);

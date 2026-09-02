@@ -126,16 +126,10 @@
     }
 
     function fireFbLead(ctaLocation, code) {
-      try {
-        /* 같은 방문에서 두 번 이상 제출해도 광고 신호는 한 번만 보낸다.
-           안 그러면 메타가 실제 신청보다 많은 수를 학습한다. (2026-09-02) */
-        var already = false;
-        try { already = sessionStorage.getItem('otb01_lead_sent') === '1'; } catch (e2) {}
-        if (!already && typeof window.fbq === 'function') {
-          window.fbq('track', 'Lead', { content_name: 'otb01', cta_location: ctaLocation }, { eventID: 'otb01_' + code });
-          try { sessionStorage.setItem('otb01_lead_sent', '1'); } catch (e3) {}
-        }
-      } catch (e) {}
+      /* 광고 신호(Lead)는 «서버»가 보낸다 — dashboard/routes/otb01.py::_send_capi_lead.
+         서버는 «처음 저장된 신청»일 때만 보내므로 같은 사람이 다른 기기에서 다시 넣어도
+         한 번만 잡힌다. 브라우저에서 같이 쏘면 그 판단을 우회해 광고 수가 부풀려진다.
+         (2026-09-03 코덱스 점검) */
     }
 
     function postWithTimeout(url, payload, ms) {
