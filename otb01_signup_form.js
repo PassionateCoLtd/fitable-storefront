@@ -14,7 +14,14 @@
   try {
     // ─── 대상 상품 가드 (pdp155_pricehide.js 패턴: 쿼리 + SEO 경로) ───
     var TARGETS = ['176'];
-    function pno() {
+    function readCookie(k) {
+    try {
+      var m = document.cookie.match(new RegExp('(?:^|; )' + k + '=([^;]*)'));
+      return m ? decodeURIComponent(m[1]) : '';
+    } catch (e) { return ''; }
+  }
+
+  function pno() {
       var mm = location.search.match(/[?&]product_no=(\d+)/) ||
                location.pathname.match(/\/product\/[^\/]+\/(\d+)(?:\/|$)/);
       return mm ? mm[1] : '';
@@ -375,7 +382,9 @@
         utm_source: utm.source,
         utm_content: utm.content,
         cta_location: ctaLocation,
-        ua: navigator.userAgent || ''
+        ua: navigator.userAgent || '',
+        fbc: readCookie('_fbc'),
+        fbp: readCookie('_fbp'),
       };
 
       postWithTimeout(CFG.ENDPOINT, payload, CFG.TIMEOUT_MS).then(function (result) {
