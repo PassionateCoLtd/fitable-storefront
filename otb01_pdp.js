@@ -8,6 +8,12 @@
  *   ③ CTA 클릭 시 신청 링크에 «확인 코드»(유입경로+버튼위치+시각)를 붙여 준다.
  *      → 응답 한 줄마다 어느 광고·어느 버튼에서 왔는지가 남는다.
  *   ④ 모바일 자동 변환된 움직이는 이미지가 원본보다 2배 무거워, 원본으로 되돌린다.
+ *   ⑤ 스킨 «사전예약» 모듈 가림 — 값이 비어 「개」「%」만 뜨고 버튼은 로그인 벽에 막혀 안 눌린다.
+ *      스킨 하단 고정바까지 같이 가려 바를 1개(우리 것)로 만든다.
+ *   ⑥ PC 상단 재구성 — 대표이미지가 상세 1번째 이미지와 같은 파일이라 같은 장면이 두 번 나온다.
+ *      대표컷·썸네일 줄을 PC에서만 접어 제목 다음에 상세가 바로 오게 한다(모바일은 갤러리라 유지).
+ *   ⑦ 스킨의 `#prdDetail .cont > *{display:none}` 때문에 모바일 detail2 에서 상세가
+ *      통째로 안 보이던 것을 상품 176 한정으로 되살린다.
  * 금지(스킨 충돌): 우리 요소 class/id 에 buy_btn·cart_btn·option·ec-base-layer 금지,
  *   DOM 노드 remove() 금지(스킨 타이머가 null 가드 없이 참조 → 오류 폭주). 숨김은 display:none 만.
  * 롤백 = 이 ScriptTag DELETE 한 줄.
@@ -31,8 +37,36 @@
     '.fit-order-close', '.xans-product-detail .xans-product-detaildesign', '#btn_restock',
     '#totalProducts', '#totalPrice', '.free_delivery', '.price-wr', '.detail_custom_event',
     '.now_buy', '.xans-product-detail .infoArea > .xans-product-action.wish_btn',
-    '.xans-product-detail .xans-product-option.option_wrap', '.menu_tab'
+    '.xans-product-detail .xans-product-option.option_wrap', '.menu_tab',
+    /* 스킨 «사전예약» 모듈 — 값이 비어 「개」「%」만 덩그러니 뜨고(한정수량·할인율 미입력),
+       버튼은 「로그인해야 한다」만 띄우고 로그인 페이지로 넘어가지도 않는다. 우리 CTA 와 역할도 겹친다.
+       카운터(0명 알림 신청)까지 같이 가린다 — 이 버튼을 없앤 이상 영원히 0이라 정보가 아니라 결함이다. */
+    '.xans-product-detail .booking_info',
+    '.xans-product-detail .booking_btn',
+    /* 같은 «값이 안 채워진 사전예약 모듈» 무리. 제목만 있고 내용이 통째로 비어 있다.
+       .count_time = 「사전예약 마감까지」 + 빈 date_info·num_wrap (사전예약 기간 미설정)
+       .add_info   = 글자 없는 빈 줄
+       ⚠️ 나중에 관리자에서 «사전예약 기간»을 실제로 넣으면 카운트다운이 동작하게 되는데
+          이 줄이 그것까지 가린다 — 그때는 .count_time 만 빼면 된다. */
+    '.xans-product-detail > .count_time',
+    '.xans-product-detail > .add_info',
+    /* ③ 스킨 하단 고정바(PC z-index:9999 / 모바일 detail2 z-index:2147483000).
+       우리 #otb01-bar 와 겹쳐 바가 2개로 보인다. 직계 자식으로 좁혀 다른 .item_info 오용을 피한다. */
+    '.xans-product-detail > .item_info'
   ];
+
+  /* ② PC 전용 가림 — 모바일에선 같은 요소가 «실제 상품 갤러리»(스와이프 캐러셀)라 가리면 화면이 통째로 빈다.
+     ⚠️ 뷰포트 미디어쿼리로 가르면 안 된다 — m. 도메인을 태블릿 폭(≥768px)으로 열면 갤러리가 지워진다.
+     PC/모바일은 «호스트»로 갈리는 사이트라 호스트로 판정한다. */
+  var HIDE_PC = [
+    /* 대표이미지: 상세 1번째 이미지와 «파일이 같다»(md5 c9592e36…, 2026-09-02 실측).
+       게다가 원본 860px 을 1385px 로 늘려 그려 흐리다. 같은 그림을 두 번 보여줄 이유가 없다. */
+    '.xans-product-detail .detailArea .xans-product-image',
+    /* 추가이미지 썸네일 줄: image_upload_type=A 라 대표컷과 같은 원본이고, 추가이미지 2장도
+       상세 본문에 이미 있는 구간이다. 상세가 바로 시작되도록 PC에서만 접는다. */
+    '.xans-product-detail > .xans-product-addimage.listImg'
+  ];
+  var IS_PC = !/^m\./i.test(location.hostname);
 
   function pno() {
     var m = location.search.match(/[?&]product_no=(\d+)/) ||
@@ -47,6 +81,13 @@
     var st = document.createElement('style');
     st.id = 'otb01-hide';
     st.textContent = HIDE.join(',') + '{display:none!important;}' +
+      (IS_PC ? HIDE_PC.join(',') + '{display:none!important;}' : '') +
+      /* ④ 상세가 통째로 안 보이던 것 되살리기 — 스킨 «모바일» 스타일시트에
+         `#prdDetail .cont > * {display:none}` 규칙이 있어서, 상세 HTML 을 <div id="otb01-pdp">
+         하나로 감싼 우리 본문이 「.cont 의 직계 자식」으로 그대로 걸린다(모바일 detail2 에서만 발동).
+         스킨 전역 CSS 는 손대지 않는다 — 이 스크립트는 상품 176 에서만 도니 영향 범위가 176 뿐이다.
+         id 와 div 를 같이 적어 상세 래퍼 id 가 바뀌어도 조용히 다시 깨지지 않게 한다. */
+      '#prdDetail .cont > #otb01-pdp,#prdDetail .cont > div{display:block!important;}' +
       'body{-webkit-text-size-adjust:100%;}' +
       '#otb01-bar{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:#161310;' +
       'display:none;align-items:center;justify-content:space-between;gap:16px;' +
