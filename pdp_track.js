@@ -54,6 +54,10 @@
     }
     // 🔴 2026-08-11 스킨 개편 대응: 현행 버튼은 a.buy_btn / a.cart_btn (구 #actionBuy류 미존재 → 7/15부터 0건).
     //    구 셀렉터도 유지(다른 스킨 페이지 방어). 실클릭만(isTrusted) 집계.
+    if (PFX === 'otb01' && e.isTrusted) {
+      var oc = t.closest('a[data-otb-cta]');
+      if (oc) { ev('cta_' + (oc.getAttribute('data-otb-cta') || 'unknown')); return; }
+    }
     if (t.closest('#actionBuy,#actionBuyClone,#actionBuyCloneFixed,#action_buy_btn,.now_buy,a.buy_btn')) { if (e.isTrusted) ev('buy_click'); return; }
     if (t.closest('#actionCart,#actionCartClone,a.cart_btn')) { if (e.isTrusted) ev('cart_click'); return; }
     var tab = t.closest('a[data-link^="#prd"]');
