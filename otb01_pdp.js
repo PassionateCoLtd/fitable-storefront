@@ -26,7 +26,7 @@
     label: '얼리버드 순번 받기',
     left: '12월 사전예약 오픈 · 200대 한정',
     sessionKey: 'otb01_utm',
-    showAfter: 0.15,
+    showAfter: 0,            // 0 = 첫 화면부터 바로 노출(대표 지시 2026-09-02 — 한참 내려야 나오던 것)
     gifFix: { '_1788345209.gif': '/web/upload/NNEditor/20260902/695b19f34ce4fe3a351a9a2bbc9fa6bc.gif',
               '_1788345210.gif': '/web/upload/NNEditor/20260902/fd2623b4cff392b561e76d61080733f9.gif' }
   };
@@ -163,7 +163,7 @@
     function onScroll() {
       try {
         var doc = document.documentElement;
-        var past = (window.pageYOffset || doc.scrollTop) > (doc.scrollHeight - window.innerHeight) * CFG.showAfter;
+        var past = (window.pageYOffset || doc.scrollTop) >= (doc.scrollHeight - window.innerHeight) * CFG.showAfter;
         var atEnd = false;
         if (bottom) { var r = bottom.getBoundingClientRect(); atEnd = r.top < window.innerHeight && r.bottom > 0; }
         b.style.display = (past && !atEnd) ? 'flex' : 'none';
