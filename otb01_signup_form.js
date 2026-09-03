@@ -219,7 +219,15 @@
       // 번호만 받는 화면이라 «왜 주는지»가 없으면 이탈한다 — 한 줄로 약속을 적는다(대표 지시 2026-09-03).
       var titleSub = document.createElement('div');
       titleSub.textContent = '사전예약 오픈 시 가장 먼저 안내드립니다.';
-      titleSub.style.cssText = 'font-size:13px;color:#5b5f68;line-height:1.5;margin:0 0 14px;';
+      titleSub.style.cssText = 'font-size:13px;color:#5b5f68;line-height:1.5;margin:0 0 2px;';
+
+      /* 설문을 «신청 전»에 예고한다 (2026-09-03 실측 대응).
+         번호를 낸 7명 중 설문 창을 연 사람이 2명(29%)뿐이었다. 원인은 설문이 길어서가 아니라
+         여기서 설문 이야기를 한 글자도 안 해 놓고, 완료화면에서 갑자기 버튼을 내밀기 때문이다.
+         미리 말해두면 설문은 «추가 요구»가 아니라 «예고된 과정»이 된다. */
+      var titleSub2 = document.createElement('div');
+      titleSub2.textContent = '이어지는 1분 설문까지 마치시면 3만원 할인쿠폰을 드립니다.';
+      titleSub2.style.cssText = 'font-size:13px;font-weight:700;color:#111114;line-height:1.5;margin:0 0 14px;';
 
       var phoneInput = document.createElement('input');
       phoneInput.id = 'otb01-phone';
@@ -271,6 +279,7 @@
 
       formPanel.appendChild(title);
       formPanel.appendChild(titleSub);
+      formPanel.appendChild(titleSub2);
       formPanel.appendChild(phoneInput);
       formPanel.appendChild(consentLabel);
       formPanel.appendChild(errorMsg);
@@ -281,25 +290,58 @@
       var successPanel = document.createElement('div');
       successPanel.id = 'otb01-success';
       successPanel.style.cssText = 'display:none;text-align:center;';
+      /* ⛔ 여기서 「완료됐습니다」로 «끝»을 선언하지 않는다 (2026-09-03 실측 대응).
+         옛 문구가 끝을 선언해 놓고 버튼을 하나 더 내밀었더니, 번호를 낸 7명 중 5명이
+         버튼을 아예 누르지 않았다. 아직 한 걸음 남았다고 «보여주는» 것이 이 화면의 일이다. */
+      var stepDots = document.createElement('div');
+      stepDots.style.cssText = 'display:flex;align-items:center;justify-content:center;margin:2px 0 6px;';
+      function mkDot() {
+        var el = document.createElement('span');
+        el.style.cssText = 'width:9px;height:9px;border-radius:50%;background:#2563EB;flex:none;';
+        return el;
+      }
+      var stepBar = document.createElement('span');
+      stepBar.style.cssText = 'width:46px;height:2px;background:#2563EB;flex:none;';
+      stepDots.appendChild(mkDot());
+      stepDots.appendChild(stepBar);
+      stepDots.appendChild(mkDot());
+
+      var stepText = document.createElement('div');
+      stepText.textContent = '2단계 중 2단계';
+      stepText.style.cssText = 'font-size:11.5px;font-weight:700;color:#2563EB;text-align:center;margin:0 0 12px;';
+
       var successTitle = document.createElement('div');
-      successTitle.textContent = '알림 신청이 완료됐습니다';
-      successTitle.style.cssText = 'font-size:18px;font-weight:700;color:#111114;margin:4px 0 8px;';
-      /* 쿠폰 수령 조건 + «먼저 알려준다» 약속.
-         ⛔ 여기서 「12월」을 다시 말하지 않는다 — 신청을 막 끝낸 사람에게 석 달 뒤 날짜를 들이대면
-            그 자리에서 나간다(대표 지시 2026-09-02). 일정은 상단·고정바에서 이미 말하고 있다. */
+      successTitle.textContent = '번호 확인했습니다\n마지막 1분 남았어요';
+      successTitle.style.cssText = 'font-size:18px;font-weight:700;color:#111114;margin:0 0 10px;' +
+        'text-align:center;line-height:1.45;white-space:pre-line;';
+
+      /* 쿠폰 «조건»은 버튼 아래 회색 글씨가 아니라 버튼 «위»에 읽히는 크기로 둔다.
+         옛 화면은 「설문을 마쳐야 쿠폰이 나간다」를 11.5px 회색으로 버튼 밑에 뒀다 — 아무도 안 읽는다. */
+      var successCond = document.createElement('div');
+      successCond.textContent = '3만원 할인쿠폰은\n설문을 마치신 분께 드립니다';
+      successCond.style.cssText = 'font-size:13px;font-weight:700;color:#111114;text-align:center;' +
+        'line-height:1.55;margin:0 0 12px;white-space:pre-line;';
+
+      /* ⛔ 「12월」을 다시 말하지 않는다 — 신청을 막 끝낸 사람에게 석 달 뒤 날짜를 들이대면
+            그 자리에서 나간다(대표 지시 2026-09-02). 일정은 상단·고정바에서 이미 말하고 있다.
+         쿠폰이 «어떻게 생긴 물건인지»(시리얼 번호·등록 방법)는 지금 알 필요가 없다 —
+         그건 쿠폰 문자를 보낼 때 그 문자 안에서 말한다(대표 지시 2026-09-03). */
       var successNote = document.createElement('div');
-      successNote.textContent = '할인쿠폰은 문자로 보내드리는 시리얼 번호입니다.\n' +
-        '회원가입 후 등록하시면 사전예약 결제에 바로 쓰실 수 있어요.\n' +
-        '사전예약이 열리면 가장 먼저 알려드립니다.';
-      successNote.style.cssText = 'font-size:11.5px;color:#9a9ea6;margin:16px 0 18px;line-height:1.7;' +
-        'white-space:pre-line;';
+      successNote.textContent = '사전예약이 열릴 때 문자로 보내드립니다.\n가장 먼저 알려드리겠습니다.';
+      successNote.style.cssText = 'font-size:11.5px;color:#9a9ea6;margin:14px 0 0;line-height:1.7;' +
+        'text-align:center;white-space:pre-line;';
+
       var surveyBtn = document.createElement('button');
       surveyBtn.id = 'otb01-survey-btn';
       surveyBtn.type = 'button';
-      surveyBtn.textContent = '1분 설문하고 3만원 할인쿠폰 받기';
+      surveyBtn.textContent = '마지막 1분 · 3만원 쿠폰 받기';
       surveyBtn.style.cssText = 'width:100%;padding:14px;font-size:15.5px;font-weight:700;color:#fff;' +
         'background:#2563EB;border:0;border-radius:10px;cursor:pointer;';
+
+      successPanel.appendChild(stepDots);
+      successPanel.appendChild(stepText);
       successPanel.appendChild(successTitle);
+      successPanel.appendChild(successCond);
       successPanel.appendChild(surveyBtn);
       successPanel.appendChild(successNote);
 
