@@ -375,6 +375,25 @@
       els.errorMsg.textContent = '';
     }
 
+    /* 스크롤 깊이 기록 (2026-09-04 대표 지시).
+       왜 «모달을 연 순간»을 따로 잡나 — 세션 최종 스크롤로 보면 오판한다.
+       버튼을 누른 뒤 페이지를 더 내려본 사람이 「가격을 보고 신청했다」로 둔갑한다.
+       가격 카드는 페이지 89~90% 지점이라, 이 값이 90 미만이면 가격을 안 본 신청이다. */
+    var scrollAtOpen = null;
+    function scrollPct() {
+      try {
+        var de = document.documentElement, b = document.body;
+        var top = window.pageYOffset || de.scrollTop || b.scrollTop || 0;
+        var max = Math.max(b.scrollHeight, de.scrollHeight) - window.innerHeight;
+        if (max <= 0) return 0;
+        return Math.max(0, Math.min(100, Math.round(top / max * 100)));
+      } catch (err) { return null; }
+    }
+    var scrollMax = 0;
+    window.addEventListener('scroll', function () {
+      var v = scrollPct(); if (v !== null && v > scrollMax) scrollMax = v;
+    }, { passive: true });
+
     function showModal(ctaLocation) {
       var e = buildModal();
       e.formPanel.style.display = 'block';
@@ -383,6 +402,7 @@
       e.overlay.style.display = 'block';
       e.modal.style.display = 'block';
       e.modal.setAttribute('data-cta-location', ctaLocation || '');
+      scrollAtOpen = scrollPct();
     }
 
     function hideModal() {
@@ -415,6 +435,9 @@
         utm_source: utm.source,
         utm_content: utm.content,
         cta_location: ctaLocation,
+        scroll_at_open: scrollAtOpen,
+        scroll_at_submit: scrollPct(),
+        scroll_max: scrollMax,
         ua: navigator.userAgent || '',
         fbc: readCookie('_fbc'),
         fbp: readCookie('_fbp'),
