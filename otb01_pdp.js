@@ -59,18 +59,22 @@
     '.xans-product-detail > .item_info'
   ];
 
-  /* ② PC 전용 가림 — 모바일에선 같은 요소가 «실제 상품 갤러리»(스와이프 캐러셀)라 가리면 화면이 통째로 빈다.
-     ⚠️ 뷰포트 미디어쿼리로 가르면 안 된다 — m. 도메인을 태블릿 폭(≥768px)으로 열면 갤러리가 지워진다.
-     PC/모바일은 «호스트»로 갈리는 사이트라 호스트로 판정한다. */
-  var HIDE_PC = [
-    /* 대표이미지: 상세 1번째 이미지와 «파일이 같다»(md5 c9592e36…, 2026-09-02 실측).
-       게다가 원본 860px 을 1385px 로 늘려 그려 흐리다. 같은 그림을 두 번 보여줄 이유가 없다. */
+  /* ② 상품 갤러리(대표이미지 + 추가이미지) — PC·모바일 «둘 다» 접는다.
+     대표이미지는 상세 1번째 이미지와 파일이 같고(md5 c9592e36…, 2026-09-02 실측), 원본 860px 을
+     늘려 그려 흐리다. 추가이미지도 상세 본문에 이미 다 들어 있는 구간이라 같은 그림을 두 번 보여준다.
+
+     2026-09-03: 처음엔 «모바일에선 실제 갤러리라 가리면 화면이 빈다»고 보고 PC 에서만 접었는데,
+     실측해 보니 모바일도 상세가 바로 시작될 뿐 비지 않는다(우리 상세 첫 구간이 히어로 사진).
+     detail.html(스와이프)·detail2.html(격자) 두 템플릿에서 각각 확인하고 모바일까지 확장했다.
+     · detail2 는 스와이프 초기화가 실패해 «작은 대표컷 + 가로 3장 격자»로 남는다 — 더 지저분하다.
+     ⚠️ 뷰포트 미디어쿼리로 가르지 말 것 — PC/모바일이 «호스트»로 갈리는 사이트다.
+     ⚠️ 선택자는 반드시 `.xans-product-detail` 안으로 한정 — 목록·추천 영역에 같은 클래스가 쓰인다. */
+  var HIDE_GALLERY = [
+    '.xans-product-detail .xans-product-image',
     '.xans-product-detail .detailArea .xans-product-image',
-    /* 추가이미지 썸네일 줄: image_upload_type=A 라 대표컷과 같은 원본이고, 추가이미지 2장도
-       상세 본문에 이미 있는 구간이다. 상세가 바로 시작되도록 PC에서만 접는다. */
+    '.xans-product-detail .xans-product-addimage',
     '.xans-product-detail > .xans-product-addimage.listImg'
   ];
-  var IS_PC = !/^m\./i.test(location.hostname);
 
   function pno() {
     var m = location.search.match(/[?&]product_no=(\d+)/) ||
@@ -87,7 +91,7 @@
     var st = document.createElement('style');
     st.id = 'otb01-hide';
     st.textContent = HIDE.join(',') + '{display:none!important;}' +
-      (IS_PC ? HIDE_PC.join(',') + '{display:none!important;}' : '') +
+      HIDE_GALLERY.join(',') + '{display:none!important;}' +
       /* ④ 상세가 통째로 안 보이던 것 되살리기 — 스킨 «모바일» 스타일시트에
          `#prdDetail .cont > * {display:none}` 규칙이 있어서, 상세 HTML 을 <div id="otb01-pdp">
          하나로 감싼 우리 본문이 「.cont 의 직계 자식」으로 그대로 걸린다(모바일 detail2 에서만 발동).
