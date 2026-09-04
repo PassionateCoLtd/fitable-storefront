@@ -25,7 +25,7 @@
     codeEntry: 'entry.2069746961',
     label: '사전예약 알림신청',
     barTitle: '테이블 바이크 루프',
-    barSub: '9월 14일 신청 마감',
+    barSub: '499,000원 · 9월 14일 마감',   // 가격을 고정바에 올렸다(2026-09-04) — 신청자의 61%가 가격을 못 보고 눌렀고, 고정바가 클릭의 43%를 차지한다
     sessionKey: 'otb01_utm',
     showAfter: 0,            // 0 = 첫 화면부터 바로 노출(대표 지시 2026-09-02 — 한참 내려야 나오던 것)
     gifFix: { '_1788345209.gif': '/web/upload/NNEditor/20260902/695b19f34ce4fe3a351a9a2bbc9fa6bc.gif',
