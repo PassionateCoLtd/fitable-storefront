@@ -129,6 +129,31 @@ var FJP_IS_PDP = (function () {
   } catch (e) { window.__fjpAttr = function () { return {}; }; }
 })();
 
+/* ══════════════ 모듈 F — Clarity 사용자 지정 태그 (2026-09-06) ══════════════
+   녹화를 «상품번호·최종유입·회원여부»로 걸러 보기 위한 태그. 값을 붙일 뿐 이벤트를 쏘지 않는다.
+   Clarity 가 없으면(차단·미로드) 아무것도 안 한다. 회원 ID 원문은 절대 붙이지 않는다(회원/비회원만). */
+(function () {
+  try {
+    if (!FJP_C24_OK) return;
+    if (window.__fjpClarityTagged) return; window.__fjpClarityTagged = 1;
+    function tag(k, v) { try { if (v && typeof window.clarity === 'function') window.clarity('set', k, String(v).slice(0, 80)); } catch (e) {} }
+    function memberFlag() {
+      var v = '';
+      try { v = (window.CAFE24 && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA.common_member_id_crypt) || ''; } catch (e) {}
+      if (!v) { try { v = (window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA && window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA.common_member_id_crypt) || ''; } catch (e) {} }
+      var t = String(v || '').trim().toLowerCase();
+      return (!t || t === '0' || t === 'guest' || t === 'null' || t === 'undefined') ? 'guest' : 'member';
+    }
+    var a = (window.__fjpAttr && window.__fjpAttr()) || {};
+    var pm = location.pathname.match(/\/(\d+)\/?$/) || location.search.match(/product_no=(\d+)/);
+    if (pm && /\/product\//.test(location.pathname)) tag('product_no', pm[1]);
+    if (a.lt_source) tag('lt_source', a.lt_source + ' / ' + (a.lt_medium || ''));
+    if (a.lt_campaign) tag('lt_campaign', a.lt_campaign);
+    if (a.lt_content) tag('lt_content', a.lt_content);
+    tag('member', memberFlag());
+  } catch (e) {}
+})();
+
 /* ══════════════ 모듈 A — GA4 이커머스 ══════════════ */
 (function () {
   try {
