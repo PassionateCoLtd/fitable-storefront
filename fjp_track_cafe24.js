@@ -373,30 +373,73 @@ var FJP_IS_PDP = (function () {
         }
         push('view_cart2', { value: sum(vc), currency: CUR, items: vc });
 
-        /* 🔴 예전엔 장바구니에서 일어나는 «모든» 통신에 반응해 «체크된 줄 전부»를 삭제로 보고했다
-           → 수량만 바꿔도 삭제로 잡히고, 실제 삭제 뒤에는 줄 번호가 밀려 엉뚱한 상품이 실렸다
-              (2026-09-06 코드리뷰). → «그 줄이 실제로 사라졌는지»를 확인한 것만 보고한다.
-           한계: 삭제가 페이지 새로고침으로 처리되면 이 이벤트는 안 나간다(틀린 값보다 없는 값이 낫다). */
+        /* 삭제 감지 — 🔴 일본몰에서 «삭제»는 통신(ajax)이 아니라 «페이지 새로고침»으로 처리된다
+           (2026-09-06 퍼널 실측: 2줄→1줄로 줄었는데 통신 훅이 한 번도 안 걸렸다).
+           그래서 ①삭제 버튼을 «누른 사실»을 적어두고 ②다음 장바구니 화면에서 «실제로 사라진 줄»만
+           보고한다. 확인창에서 «취소»를 눌렀으면 줄이 그대로라 아무것도 안 나간다.
+           통신으로 처리하는 스킨을 위해 통신 훅도 함께 남겨 둔다(둘 다 «사라진 줄»만 본다). */
         var pfx = window.BASKET_CHK_ID_PREFIX || 'basket_chk_';
+        var RM_PEND = 'fjp_rm_pending';
         function rowKeys() { return qa('[id^="' + pfx + '"]').map(function (c) { return c.id; }); }
-        var beforeKeys = rowKeys();
+        function snapshot() {
+          var snap = {};
+          rowKeys().forEach(function (k, idx) {
+            if (B[idx]) snap[k] = { p: B[idx].product_no, n: B[idx].product_name,
+                                    c: B[idx].main_cate_no, q: B[idx].quantity,
+                                    u: unitPrice(B[idx]),
+                                    v: stripOpt(B[idx].option_str && B[idx].option_str[0]) };
+          });
+          return snap;
+        }
+        function reportGone(snap, nowKeys) {
+          var rm = [];
+          for (var k in snap) {
+            if (nowKeys.indexOf(k) === -1) {
+              var r = snap[k];
+              rm.push(item(r.p, r.n, r.c, r.q, r.u, r.v));
+            }
+          }
+          if (rm.length) push('remove_from_cart2', { value: sum(rm), currency: CUR, items: rm }, attr());
+          return rm.length;
+        }
+
+        /* ① 지난 화면에서 삭제를 눌렀다면, 지금 화면에서 «정말 사라졌는지» 확인해 보고한다 */
+        try {
+          var pend = sessionStorage.getItem(RM_PEND);
+          if (pend) {
+            sessionStorage.removeItem(RM_PEND);
+            var po = JSON.parse(pend);
+            if (po && po.snap && Date.now() - (po.ts || 0) < 120000) reportGone(po.snap, rowKeys());
+          }
+        } catch (e) {}
+
+        /* ② 삭제 버튼 클릭을 적어둔다(전체비우기·선택삭제·줄삭제 모두) */
+        document.addEventListener('click', function (e) {
+          try {
+            if (!e.isTrusted) return;
+            if (e.button !== undefined && e.button !== 0) return;
+            var t = e.target; if (!t || !t.closest) return;
+            var el = t.closest('a,button,input'); if (!el) return;
+            var oc = (el.getAttribute && el.getAttribute('onclick')) || '';
+            var tx = (el.innerText || el.value || '');
+            if (!(/Basket\.(deleteBasketItem|deleteBasket|emptyBasket)\s*\(/.test(oc) ||
+                  /削除|カートを空にする/.test(tx))) return;
+            sessionStorage.setItem(RM_PEND, JSON.stringify({ snap: snapshot(), ts: Date.now() }));
+          } catch (err) {}
+        }, true);
+
+        /* ③ 통신으로 처리하는 스킨 대비 — 화면이 다시 그려진 뒤 사라진 줄이 있으면 보고 */
+        var liveSnap = snapshot();
         hookBasketXhr(function () {
           setTimeout(function () {
             try {
-              var afterKeys = rowKeys(), gone = [];
-              beforeKeys.forEach(function (k, idx) {
-                if (afterKeys.indexOf(k) === -1 && B[idx]) gone.push(idx);
-              });
-              if (!gone.length) return;        /* 사라진 줄이 없다 = 수량 변경 등 → 보고 안 함 */
-              var rm = gone.map(function (idx) {
-                return item(B[idx].product_no, B[idx].product_name, B[idx].main_cate_no,
-                            B[idx].quantity, unitPrice(B[idx]),
-                            stripOpt(B[idx].option_str && B[idx].option_str[0]));
-              });
-              push('remove_from_cart2', { value: sum(rm), currency: CUR, items: rm });
-              beforeKeys = afterKeys;
+              var nowKeys = rowKeys();
+              if (reportGone(liveSnap, nowKeys)) {
+                try { sessionStorage.removeItem(RM_PEND); } catch (e) {}   /* 두 번 세지 않는다 */
+              }
+              liveSnap = snapshot();
             } catch (e) {}
-          }, 600);                             /* 화면이 다시 그려질 틈을 준다 */
+          }, 600);
         });
       }
     }
