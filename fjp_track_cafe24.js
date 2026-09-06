@@ -143,6 +143,18 @@ var FJP_C24_OK = (function () {
       return n > 0 ? n : 1;
     }
 
+    /* 직전 페이지에서 «담기»를 눌렀다면 여기서 한 번 보낸다(위 설명 참조) */
+    try {
+      var _pend = sessionStorage.getItem('fjp_atc_pending');
+      if (_pend) {
+        sessionStorage.removeItem('fjp_atc_pending');
+        var _o = JSON.parse(_pend);
+        if (_o && _o.ec && Date.now() - (_o.ts || 0) < 60000) {
+          push('add_to_cart2', _o.ec, (window.__fjpAttr && window.__fjpAttr()) || {});
+        }
+      }
+    } catch (e) {}
+
     var path = location.pathname;
     var isPdp   = /\/product\//.test(path) && !!productNo();
     var isCart  = /\/order\/basket/.test(path);
@@ -210,21 +222,38 @@ var FJP_C24_OK = (function () {
               /npay_btn_item|__checkout_btn_comm/.test(cls)) { payFlag = Date.now(); }
         } catch (err) {}
       }
+      /* 🔴 담기를 누르면 «그 자리에서» 페이지가 넘어간다(폼 전송). GA4 는 이벤트를 모아서
+         보내기 때문에 그 사이에 전송이 통째로 잘린다(9/6 실측: 같은 조작이 어떤 땐 도착하고
+         어떤 땐 사라짐). → 담을 «내용»만 브라우저에 적어두고, «다음 페이지가 열린 뒤»에
+         한 번만 보낸다. 페이지가 안 넘어가는 스킨(ajax)이면 1.2초 뒤 그 자리에서 보낸다.
+         어느 쪽이든 표식을 지우고 보내므로 두 번 세지 않는다. */
+      var PEND = 'fjp_atc_pending';
+      function atcPayload() {
+        var items = [item(pno,
+                          (typeof window.product_name !== 'undefined' ? window.product_name : document.title),
+                          (typeof window.iCategoryNo !== 'undefined' ? window.iCategoryNo : ''),
+                          qty(),
+                          (typeof window.product_price !== 'undefined' ? window.product_price : 0),
+                          optionVariant())];
+        applyOptionRows(items);
+        return { value: sum(items), currency: CUR, items: items };
+      }
       function fireAtc() {
         try {
           if (payFlag && Date.now() - payFlag < 1500) return;   /* 즉시구매는 begin_checkout 이 잡는다 */
-          var items = [item(pno,
-                            (typeof window.product_name !== 'undefined' ? window.product_name : document.title),
-                            (typeof window.iCategoryNo !== 'undefined' ? window.iCategoryNo : ''),
-                            qty(),
-                            (typeof window.product_price !== 'undefined' ? window.product_price : 0),
-                            optionVariant())];
-          applyOptionRows(items);
-          var sig = JSON.stringify(items);
+          var ec = atcPayload();
+          var sig = JSON.stringify(ec.items);
           var now = Date.now();
           if (sig === lastSig && now - lastAt < 2000) return;    /* 같은 담기 중복 차단 */
           lastSig = sig; lastAt = now;
-          push('add_to_cart2', { value: sum(items), currency: CUR, items: items });
+          try { sessionStorage.setItem(PEND, JSON.stringify({ ec: ec, ts: now })); } catch (e) {}
+          setTimeout(function () {                               /* 페이지가 안 넘어갔으면 여기서 발사 */
+            try {
+              var raw = sessionStorage.getItem(PEND); if (!raw) return;
+              sessionStorage.removeItem(PEND);
+              push('add_to_cart2', JSON.parse(raw).ec, attr());
+            } catch (e) {}
+          }, 1200);
         } catch (e) {}
       }
       function optionVariant() {
@@ -309,8 +338,8 @@ var FJP_C24_OK = (function () {
         try {
           if (!e.isTrusted) return;
           var t = e.target; if (!t) return;
-          var isPay = (t.name && /payment|pay_method|settle/i.test(t.name)) ||
-                      (t.id && /payment|paymethod/i.test(t.id)) ||
+          var isPay = (t.name && /paymethod|payment|pay_method|settle/i.test(t.name)) ||
+                      (t.id && /paymethod|payment/i.test(t.id)) ||
                       (t.closest && t.closest('[id*=payment], [class*=payment], .xans-order-paymethod'));
           if (!isPay) return;
           var lab = '';
