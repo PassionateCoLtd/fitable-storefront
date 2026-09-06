@@ -162,6 +162,16 @@ var FJP_IS_PDP = (function () {
         item_variant: variant == null ? '_' : String(variant)
       };
     }
+    /* 🔴 카페24는 «같은 이름의 필드»를 화면마다 다른 뜻으로 준다(2026-09-06 실측):
+         · 장바구니 aBasketProductData.product_sum_price = 49,900 → «단가»
+         · 주문서   aBasketProductOrderData.product_sum_price = 99,800 → «줄 합계»(수량 2)
+       그래서 product_sum_price 를 쓰면 화면에 따라 금액이 2배가 된다.
+       두 객체 모두 product_price(단가) + opt_price(옵션 추가금) 는 뜻이 같으므로 이걸 정본으로 쓴다. */
+    function unitPrice(o) {
+      var base = num(o.product_price);
+      if (!base) base = num(o.product_sale_price) || num(o.product_sum_price);
+      return base + num(o.opt_price || o.option_price || 0);
+    }
     function sum(items) {
       var t = 0; for (var i = 0; i < items.length; i++) t += items[i].price * items[i].quantity;
       return t;
@@ -337,7 +347,7 @@ var FJP_IS_PDP = (function () {
         var vc = [];
         for (var i = 0; i < B.length; i++) {
           vc.push(item(B[i].product_no, B[i].product_name, B[i].main_cate_no,
-                       B[i].quantity, B[i].product_sum_price,
+                       B[i].quantity, unitPrice(B[i]),
                        stripOpt(B[i].option_str && B[i].option_str[0])));
         }
         push('view_cart2', { value: sum(vc), currency: CUR, items: vc });
@@ -359,7 +369,7 @@ var FJP_IS_PDP = (function () {
               if (!gone.length) return;        /* 사라진 줄이 없다 = 수량 변경 등 → 보고 안 함 */
               var rm = gone.map(function (idx) {
                 return item(B[idx].product_no, B[idx].product_name, B[idx].main_cate_no,
-                            B[idx].quantity, B[idx].product_sum_price,
+                            B[idx].quantity, unitPrice(B[idx]),
                             stripOpt(B[idx].option_str && B[idx].option_str[0]));
               });
               push('remove_from_cart2', { value: sum(rm), currency: CUR, items: rm });
@@ -377,7 +387,7 @@ var FJP_IS_PDP = (function () {
       if (O && O.length) {
         for (var j = 0; j < O.length; j++) {
           bc.push(item(O[j].product_no, O[j].product_name, O[j].main_cate_no,
-                       O[j].quantity, O[j].product_sum_price,
+                       O[j].quantity, unitPrice(O[j]),
                        stripOpt(O[j].option_str && O[j].option_str[0])));
         }
       }
@@ -458,9 +468,8 @@ var FJP_IS_PDP = (function () {
         var pi = [];
         rev.forEach(function (p, idx) {
           /* 옵션 추가금이 있으면 단가에 더해 장바구니·주문서 금액과 어긋나지 않게 한다 */
-          var unit = num(p.product_price) + num(p.option_price || p.opt_price || 0);
           pi.push(item(p.product_no, p.product_name, p.category_no_3 || p.category_no_2,
-                       p.quantity, unit, useOpt ? (optTexts[idx] || '') : ''));
+                       p.quantity, unitPrice(p), useOpt ? (optTexts[idx] || '') : ''));
         });
         /* 🔴 화면에서 긁은 첫 글자를 그대로 결제수단으로 쓰면 주문번호·주문일 같은 값이 들어간다.
            → 결제수단으로 «보이는 말»일 때만 채운다. */
