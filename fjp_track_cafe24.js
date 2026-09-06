@@ -66,6 +66,10 @@ var FJP_C24_OK = (function () {
     var store = {};
     try { store = JSON.parse(LS.getItem(K) || '{}') || {}; } catch (e) { store = {}; }
     var now = current();
+    /* 🔴 몰 안에서 페이지를 옮기면 referrer 가 비어 있는 경우가 있다(주문 흐름은 POST 라 특히).
+       그때 (direct) 로 덮으면 «광고로 들어온 사람»이 결제 시점에 직접유입으로 둔갑한다(9/6 실측).
+       → 이미 저장된 유입이 있으면 «진짜 새 유입»일 때만 덮는다. */
+    if (now && now.source === '(direct)' && store.lt_source) now = null;
     if (now) {
       if (!store.ft_source) {
         store.ft_source = now.source; store.ft_medium = now.medium;
@@ -168,7 +172,7 @@ var FJP_C24_OK = (function () {
       /* 🔑 일본몰은 「カートに入れる」가 ajax 가 아니라 «폼 전송»이라 페이지가 통째로 넘어간다.
          그래서 담기 판정은 «클릭»으로 한다 — 메타 AddToCart(GTM 태그 50)와 «같은 판정 조건».
          (실측 2026-09-06: 클릭 후 /order/basket.html 로 이동, XHR 0건) */
-      document.addEventListener('click', function (e) {
+      function maybeAtc(e) {
         try {
           if (!e.isTrusted) return;
           var t = e.target; if (!t || !t.closest) return;
@@ -188,7 +192,14 @@ var FJP_C24_OK = (function () {
           }
           fireAtc();
         } catch (err) {}
-      }, true);
+      }
+      /* 🔴 click 에서 쏘면 늦다 — 담기는 폼 전송이라 그 순간 페이지가 넘어가고 GA4 전송이 잘린다
+         (9/6 실측: 같은 조작인데 어떤 때는 도착하고 어떤 때는 사라졌다).
+         눌리는 «순간»(mousedown/touchstart)에 먼저 쏘고, click 은 예비로만 남긴다.
+         같은 담기를 두 번 세지 않도록 fireAtc 안의 2초 서명 중복차단이 받아낸다. */
+      document.addEventListener('mousedown', maybeAtc, true);
+      document.addEventListener('touchstart', maybeAtc, true);
+      document.addEventListener('click', maybeAtc, true);
       function markPay(e) {
         try {
           var t = e.target; if (!t || !t.closest) return;
