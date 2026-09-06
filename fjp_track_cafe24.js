@@ -23,6 +23,64 @@ var FJP_C24_OK = (function () {
   catch (e) { return false; }
 })();
 
+/* ══════════════ 모듈 0 — 유입 박제(퍼스트파티 어트리뷰션) ══════════════
+   한국몰 attr_capture.js 의 «유입 박제» 부분만 이식한다.
+   최초유입(ft_*)과 최종유입(lt_*)을 브라우저에 저장해 두었다가 결제시작·주문완료 이벤트에
+   붙인다 — KOMOJU 결제창을 다녀오는 동안 유입정보가 사라져도 「어느 광고가 팔았나」가 남는다.
+   🔴 한국몰의 «서버 비콘»(order_attr_beacon)은 이식하지 않았다 — 그건 네이버페이·카카오페이
+      «앱 안 브라우저»가 저장값을 날려버리는 문제를 푸는 장치인데, 일본은 그 상황이 없다
+      (KOMOJU 는 보통의 페이지 이동이라 저장값이 살아남는다). 자세한 판단은 보고서 참조. */
+(function () {
+  try {
+    if (!FJP_C24_OK) return;
+    var LS; try { LS = window.localStorage; } catch (e) { return; }
+    var K = 'fjp_attr';
+    function refClass() {
+      try {
+        var r = document.referrer; if (!r) return { source: '(direct)', medium: '(none)' };
+        var h = new URL(r).hostname.replace(/^www\./, '');
+        var self = (location.hostname || '').replace(/^www\./, '');
+        if (self && h === self) return null;
+        if (/(^|\.)google\./.test(h)) return { source: 'google', medium: 'organic' };
+        if (/(^|\.)yahoo\./.test(h)) return { source: 'yahoo', medium: 'organic' };
+        if (/bing\./.test(h)) return { source: 'bing', medium: 'organic' };
+        if (/instagram|ig\.me/.test(h)) return { source: 'instagram', medium: 'referral' };
+        if (/facebook|(^|\.)fb\.|fb\.me/.test(h)) return { source: 'facebook', medium: 'referral' };
+        if (/makuake/.test(h)) return { source: 'makuake', medium: 'referral' };
+        if (/camp-?fire\.jp/.test(h)) return { source: 'campfire', medium: 'referral' };
+        if (/line\.me|lin\.ee/.test(h)) return { source: 'line', medium: 'referral' };
+        if (/t\.co|twitter|x\.com/.test(h)) return { source: 'twitter', medium: 'referral' };
+        if (/tiktok/.test(h)) return { source: 'tiktok', medium: 'referral' };
+        return { source: h.slice(0, 60), medium: 'referral' };
+      } catch (e) { return null; }
+    }
+    function current() {
+      var q = new URLSearchParams(location.search);
+      var s = q.get('utm_source'), m = q.get('utm_medium'), c = q.get('utm_campaign'), ct = q.get('utm_content');
+      if (s) return { source: s.slice(0,80), medium: (m||'').slice(0,80), campaign: (c||'').slice(0,120), content: (ct||'').slice(0,120) };
+      if (q.get('fbclid')) return { source: 'facebook', medium: 'cpc', campaign: '', content: '' };
+      if (q.get('gclid')) return { source: 'google', medium: 'cpc', campaign: '', content: '' };
+      var r = refClass();
+      return r ? { source: r.source, medium: r.medium, campaign: '', content: '' } : null;
+    }
+    var store = {};
+    try { store = JSON.parse(LS.getItem(K) || '{}') || {}; } catch (e) { store = {}; }
+    var now = current();
+    if (now) {
+      if (!store.ft_source) {
+        store.ft_source = now.source; store.ft_medium = now.medium;
+        store.ft_campaign = now.campaign; store.ft_content = now.content;
+      }
+      store.lt_source = now.source; store.lt_medium = now.medium;
+      store.lt_campaign = now.campaign; store.lt_content = now.content;
+      try { LS.setItem(K, JSON.stringify(store)); } catch (e) {}
+    }
+    window.__fjpAttr = function () {
+      try { return JSON.parse(LS.getItem(K) || '{}') || {}; } catch (e) { return {}; }
+    };
+  } catch (e) { window.__fjpAttr = function () { return {}; }; }
+})();
+
 /* ══════════════ 모듈 A — GA4 이커머스 ══════════════ */
 (function () {
   try {
@@ -33,12 +91,15 @@ var FJP_C24_OK = (function () {
 
     function dl() { return (window.dataLayer = window.dataLayer || []); }
     /* 한국몰과 동일: ecommerce 를 먼저 null 로 밀어 직전 이벤트의 items 가 안 묻게 한다 */
-    function push(eventType, ecommerceObj) {
+    function push(eventType, ecommerceObj, extra) {
       try {
         dl().push({ ecommerce: null });
-        dl().push({ event: eventType, ecommerce: ecommerceObj });
+        var o = { event: eventType, ecommerce: ecommerceObj };
+        if (extra) for (var k in extra) if (extra[k] !== undefined && extra[k] !== '') o[k] = extra[k];
+        dl().push(o);
       } catch (e) {}
     }
+    function attr() { try { return (window.__fjpAttr && window.__fjpAttr()) || {}; } catch (e) { return {}; } }
     function num(v) {
       var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, ''));
       return isFinite(n) ? n : 0;
@@ -225,7 +286,30 @@ var FJP_C24_OK = (function () {
                        stripOpt(O[j].option_str && O[j].option_str[0])));
         }
       }
-      if (bc.length) push('begin_checkout2', { value: sum(bc), currency: CUR, items: bc });
+      if (bc.length) push('begin_checkout2', { value: sum(bc), currency: CUR, items: bc }, attr());
+
+      /* add_payment_info — 결제수단을 고른 순간(한국몰 addpayinfo.js 등가). 세션 1회. */
+      var apiFired = 0;
+      function firePayInfo(pt) {
+        if (apiFired || !bc.length) return; apiFired = 1;
+        push('add_payment_info2', { value: sum(bc), currency: CUR, items: bc, payment_type: pt || '' }, attr());
+      }
+      document.addEventListener('change', function (e) {
+        try {
+          if (!e.isTrusted) return;
+          var t = e.target; if (!t) return;
+          var isPay = (t.name && /payment|pay_method|settle/i.test(t.name)) ||
+                      (t.id && /payment|paymethod/i.test(t.id)) ||
+                      (t.closest && t.closest('[id*=payment], [class*=payment], .xans-order-paymethod'));
+          if (!isPay) return;
+          var lab = '';
+          try {
+            if (t.tagName === 'SELECT' && t.selectedIndex >= 0) lab = (t.options[t.selectedIndex].text || '').trim();
+            else { var l = t.closest('li,label,tr'); lab = l ? (l.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 40) : (t.value || ''); }
+          } catch (e2) {}
+          firePayInfo(lab);
+        } catch (err) {}
+      }, true);
     }
 
     /* ── purchase ──────────────────────────────────────────────── */
@@ -250,7 +334,7 @@ var FJP_C24_OK = (function () {
           currency: CUR,
           payment_type: payEl ? (payEl.textContent || '').trim() : '',
           items: pi
-        });
+        }, attr());
       }
     }
 
@@ -620,5 +704,40 @@ var FJP_C24_OK = (function () {
       } catch (e) {}
     }, true);
     window.addEventListener('pagehide', function () { try { exitSnapshot('pagehide'); } catch (e) {} }, true);
+  } catch (e) {}
+})();
+
+
+/* ══════════════ 모듈 D — GA4 user_id (한국몰 userid.js 이식) ══════════════
+   로그인 회원의 카페24 «암호화된 회원식별값»을 한 번 더 해시해 GA4 user_id 로 세팅.
+   기기를 바꿔가며 산 사람이 두 사람으로 세지는 것을 막는다.
+   ⛔ 원본 값은 어디에도 남기지 않는다(콘솔·저장소·dataLayer 전부). 이벤트도 쏘지 않는다. */
+(function () {
+  try {
+    if (!FJP_C24_OK) return;
+    if (window.__fjpUid1) return; window.__fjpUid1 = 1;
+    function raw() {
+      try {
+        var a = (window.CAFE24 && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA) ||
+                window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA ||
+                window.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA || {};
+        return String(a.common_member_id_crypt || '');
+      } catch (e) { return ''; }
+    }
+    function go() {
+      var v = raw();
+      if (!v) return;                        /* 비회원 = 아무것도 안 함 */
+      if (!(window.crypto && window.crypto.subtle)) return;
+      window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(v)).then(function (b) {
+        try {
+          var h = Array.prototype.map.call(new Uint8Array(b), function (x) {
+            return ('0' + x.toString(16)).slice(-2); }).join('');
+          if (typeof window.gtag === 'function') window.gtag('set', { user_id: h });
+        } catch (e) {}
+      }).catch(function () {});
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
+    else go();
+    setTimeout(go, 3000);                    /* 카페24 전역이 늦게 채워지는 화면 대비 */
   } catch (e) {}
 })();
