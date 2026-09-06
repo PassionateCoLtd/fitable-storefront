@@ -103,6 +103,31 @@ var FJP_C24_OK = (function () {
       var payFlag = 0, lastSig = '', lastAt = 0;
       document.addEventListener('mousedown', markPay, true);
       document.addEventListener('touchstart', markPay, true);
+
+      /* 🔑 일본몰은 「カートに入れる」가 ajax 가 아니라 «폼 전송»이라 페이지가 통째로 넘어간다.
+         그래서 담기 판정은 «클릭»으로 한다 — 메타 AddToCart(GTM 태그 50)와 «같은 판정 조건».
+         (실측 2026-09-06: 클릭 후 /order/basket.html 로 이동, XHR 0건) */
+      document.addEventListener('click', function (e) {
+        try {
+          if (!e.isTrusted) return;
+          var t = e.target; if (!t || !t.closest) return;
+          var el = t.closest('a,button,input'); if (!el) return;
+          var oc = (el.getAttribute && el.getAttribute('onclick')) || '';
+          var cls = (typeof el.className === 'string') ? el.className : '';
+          var tx = (el.innerText || el.value || '');
+          if (!(/product_submit\s*\(\s*2\s*,/.test(oc) || /(^|\s)cart_btn(\s|$)/.test(cls) ||
+                /カートに入れる|カートに追加/.test(tx))) return;
+          /* 옵션이 있는데 안 골랐으면 카페24가 담기를 거부한다 → 발화하지 않는다(태그 50 과 동일) */
+          var hasOpt = !!q('select[id^=product_option_id], .xans-product-option select');
+          if (hasOpt) {
+            var tp = q('#totalPrice');
+            var txt = tp ? (tp.innerText || tp.textContent || '') : '';
+            var mm = txt.match(/[¥￥]\s*([0-9][0-9,]*)/);
+            if (!mm || !parseFloat(mm[1].replace(/,/g, ''))) return;
+          }
+          fireAtc();
+        } catch (err) {}
+      }, true);
       function markPay(e) {
         try {
           var t = e.target; if (!t || !t.closest) return;
