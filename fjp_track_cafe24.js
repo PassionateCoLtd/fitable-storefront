@@ -2,8 +2,10 @@
 /* 핏에이블 일본몰(Cafe24 shop5 · fitablejp.com / m.fitablejp.com) 계측 전용.
    무수술 = 화면 미변경, 리스너만. 전송은 dataLayer.push 단일 경로
    → GTM(GTM-W2H92G8X) 태그가 GA4(G-1SCGQRMJYL / property 511369990)로 중계.
-   ⛔ 이 파일은 gtag / fbq 를 절대 직접 호출하지 않는다.
+   ⛔ 이 파일은 «이벤트»를 gtag / fbq 로 직접 쏘지 않는다 — 전송 경로는 dataLayer 하나뿐이다.
       (한국몰 add_to_cart 3중 발화 사고의 원인이 «여러 소스가 같은 이벤트를 각자 쏜 것»이었다.)
+      유일한 예외는 모듈 D 의 `gtag('set', {user_id})` — 이벤트가 아니라 «값 세팅»이라
+      중복 발화를 만들지 않는다. 자세한 사유는 모듈 D 머리말 참조.
 
    ── 모듈 A : GA4 이커머스 (한국몰 SEO Head 「GA4 dataLayer by YamujinChoa」의 일본판)
       dataLayer 이벤트명·페이로드 모양을 한국몰과 «글자까지 동일»하게 맞춘다.
@@ -11,6 +13,9 @@
       다른 점은 currency 가 JPY 라는 것 하나뿐.
    ── 모듈 B : jp01_pdp_* 마이크로 퍼널 (Wix 판 fjp_track.js 의 Cafe24 이식)
       이미지·섹션·화면·영상·클릭·이탈. 저장표 pdp_{img,sec,screen,track}_events_daily_jp 가 그대로 받는다.
+   ── 모듈 0 : 유입 박제(ft_/lt_)  ── 모듈 D : GA4 user_id
+
+   2026-09-06 코드리뷰 수리: 담기 금액 2배·게스트 병합 위험·게시판 발화·주문 중복 계상 외 6건.
 
    롤백 = GTM 컨테이너 이전 버전 재게시(또는 로더 태그 일시중지).
    2026-09-06 신규.
@@ -21,6 +26,17 @@
 var FJP_C24_OK = (function () {
   try { return /(^|\.)fitablejp\.com$/.test(location.hostname) || /\/shop5\//.test(location.pathname); }
   catch (e) { return false; }
+})();
+
+/* 🔴 «상품 상세»만 통과시키는 단일 판정. 예전엔 경로에 `/product/` 가 들어가기만 하면 통과라
+   `/board/product/list.html?...&product_no=100`(리뷰·문의 게시판)에서도 상세 조회가 잡혔다.
+   게시판·목록은 명시적으로 뺀다. (2026-09-06 코드리뷰 수리) */
+var FJP_IS_PDP = (function () {
+  try {
+    var p = location.pathname;
+    if (/^\/board\//.test(p)) return false;
+    return /^\/product\/(detail\.html|[^\/]+\/\d+(\/|$))/.test(p);
+  } catch (e) { return false; }
 })();
 
 /* ══════════════ 모듈 0 — 유입 박제(퍼스트파티 어트리뷰션) ══════════════
@@ -39,8 +55,9 @@ var FJP_C24_OK = (function () {
       try {
         var r = document.referrer; if (!r) return { source: '(direct)', medium: '(none)' };
         var h = new URL(r).hostname.replace(/^www\./, '');
-        var self = (location.hostname || '').replace(/^www\./, '');
-        if (self && h === self) return null;
+        /* 🔴 정확일치로 보면 fitablejp.com → m.fitablejp.com «모바일 자동전환» 한 번에
+           우리 도메인이 외부 유입으로 잡혀 광고 귀속이 증발한다(한국몰 attr_capture 와 같은 방식으로 정정). */
+        if (h.indexOf('fitablejp') > -1 || h === (location.hostname || '')) return null;
         if (/(^|\.)google\./.test(h)) return { source: 'google', medium: 'organic' };
         if (/(^|\.)yahoo\./.test(h)) return { source: 'yahoo', medium: 'organic' };
         if (/bing\./.test(h)) return { source: 'bing', medium: 'organic' };
@@ -63,24 +80,40 @@ var FJP_C24_OK = (function () {
       var r = refClass();
       return r ? { source: r.source, medium: r.medium, campaign: '', content: '' } : null;
     }
+    /* 유효기간 — 한국몰 attr_capture.js 관례 그대로: 최종유입 30일 · 최초유입 90일.
+       없으면 «3개월 전 광고»가 영원히 마지막 유입 자리를 차지한다. */
+    var TTL_LT = 30 * 24 * 3600 * 1000, TTL_FT = 90 * 24 * 3600 * 1000, NOW = Date.now();
     var store = {};
     try { store = JSON.parse(LS.getItem(K) || '{}') || {}; } catch (e) { store = {}; }
+    if (store.lt_ts && NOW - store.lt_ts > TTL_LT) {
+      store.lt_source = store.lt_medium = store.lt_campaign = store.lt_content = undefined; store.lt_ts = 0;
+    }
+    if (store.ft_ts && NOW - store.ft_ts > TTL_FT) {
+      store.ft_source = store.ft_medium = store.ft_campaign = store.ft_content = undefined; store.ft_ts = 0;
+    }
     var now = current();
     /* 🔴 몰 안에서 페이지를 옮기면 referrer 가 비어 있는 경우가 있다(주문 흐름은 POST 라 특히).
        그때 (direct) 로 덮으면 «광고로 들어온 사람»이 결제 시점에 직접유입으로 둔갑한다(9/6 실측).
-       → 이미 저장된 유입이 있으면 «진짜 새 유입»일 때만 덮는다. */
+       → «유효기간 안의» 저장값이 있을 때만 덮어쓰기를 막는다(기한이 지나면 정상적으로 갱신). */
     if (now && now.source === '(direct)' && store.lt_source) now = null;
     if (now) {
       if (!store.ft_source) {
         store.ft_source = now.source; store.ft_medium = now.medium;
-        store.ft_campaign = now.campaign; store.ft_content = now.content;
+        store.ft_campaign = now.campaign; store.ft_content = now.content; store.ft_ts = NOW;
       }
       store.lt_source = now.source; store.lt_medium = now.medium;
-      store.lt_campaign = now.campaign; store.lt_content = now.content;
+      store.lt_campaign = now.campaign; store.lt_content = now.content; store.lt_ts = NOW;
       try { LS.setItem(K, JSON.stringify(store)); } catch (e) {}
     }
     window.__fjpAttr = function () {
-      try { return JSON.parse(LS.getItem(K) || '{}') || {}; } catch (e) { return {}; }
+      try {
+        var v = JSON.parse(LS.getItem(K) || '{}') || {}, out = {};
+        ['ft_source','ft_medium','ft_campaign','ft_content',
+         'lt_source','lt_medium','lt_campaign','lt_content'].forEach(function (k) {
+          if (v[k]) out[k] = v[k];       /* ts 같은 내부 필드는 GA4 로 안 내보낸다 */
+        });
+        return out;
+      } catch (e) { return {}; }
     };
   } catch (e) { window.__fjpAttr = function () { return {}; }; }
 })();
@@ -156,7 +189,7 @@ var FJP_C24_OK = (function () {
     } catch (e) {}
 
     var path = location.pathname;
-    var isPdp   = /\/product\//.test(path) && !!productNo();
+    var isPdp   = FJP_IS_PDP && !!productNo();
     var isCart  = /\/order\/basket/.test(path);
     var isForm  = /\/order\/orderform/.test(path);
     var isDone  = /\/order\/order_result/.test(path);
@@ -181,12 +214,24 @@ var FJP_C24_OK = (function () {
       document.addEventListener('mousedown', markPay, true);
       document.addEventListener('touchstart', markPay, true);
 
-      /* 🔑 일본몰은 「カートに入れる」가 ajax 가 아니라 «폼 전송»이라 페이지가 통째로 넘어간다.
-         그래서 담기 판정은 «클릭»으로 한다 — 메타 AddToCart(GTM 태그 50)와 «같은 판정 조건».
-         (실측 2026-09-06: 클릭 후 /order/basket.html 로 이동, XHR 0건) */
+      /* 🔑 일본몰 「カートに入れる」는 ajax 가 아니라 «폼 전송»이라 페이지가 통째로 넘어간다.
+         전송이 잘리는 문제는 «담을 내용을 적어두고 다음 페이지에서 보내는» 방식으로 이미 해결했다
+         (아래 fireAtc). 그러므로 발화 시점을 mousedown/touchstart 로 당길 이유가 없다 —
+         🔴 오히려 화면을 누른 채 스크롤하거나 우클릭·드래그로 빠져나가도 담기로 세는
+            «유령 담기»가 생긴다(2026-09-06 코드리뷰). → «진짜 좌클릭»만 인정한다. */
+      function yenAmt(sv) {
+        var t = String(sv || '');
+        var m = t.match(/[¥￥]\s*([0-9][0-9,]*)/)           /* ¥49,900 — 일본몰 현행 표기 */
+             || t.match(/([0-9][0-9,]*)\s*(?:円|JPY)/i)      /* 49,900円 / 49,900 JPY */
+             || t.match(/([0-9][0-9,]{2,})/);                /* 통화기호가 사라져도 숫자는 잡는다 */
+        if (!m) return null;
+        var v = parseFloat(m[1].replace(/,/g, ''));
+        return v > 0 ? v : null;
+      }
       function maybeAtc(e) {
         try {
           if (!e.isTrusted) return;
+          if (e.button !== undefined && e.button !== 0) return;   /* 좌클릭만 — 우클릭·가운데클릭 제외 */
           var t = e.target; if (!t || !t.closest) return;
           var el = t.closest('a,button,input'); if (!el) return;
           var oc = (el.getAttribute && el.getAttribute('onclick')) || '';
@@ -194,23 +239,22 @@ var FJP_C24_OK = (function () {
           var tx = (el.innerText || el.value || '');
           if (!(/product_submit\s*\(\s*2\s*,/.test(oc) || /(^|\s)cart_btn(\s|$)/.test(cls) ||
                 /カートに入れる|カートに追加/.test(tx))) return;
-          /* 옵션이 있는데 안 골랐으면 카페24가 담기를 거부한다 → 발화하지 않는다(태그 50 과 동일) */
+          /* 옵션이 있는데 안 골랐으면 카페24가 담기를 거부한다 → 발화하지 않는다(태그 50 과 동일).
+             🔴 합계칸 표기가 바뀌거나 칸이 사라지면 «주력 상품 담기 계측이 통째로 0» 이 되고
+                오류도 안 남는다 → 금액은 3중 정규식으로 읽고, 칸 자체가 없으면 «옵션을 골랐는가»로 판정. */
           var hasOpt = !!q('select[id^=product_option_id], .xans-product-option select');
           if (hasOpt) {
             var tp = q('#totalPrice');
-            var txt = tp ? (tp.innerText || tp.textContent || '') : '';
-            var mm = txt.match(/[¥￥]\s*([0-9][0-9,]*)/);
-            if (!mm || !parseFloat(mm[1].replace(/,/g, ''))) return;
+            if (tp) {
+              if (!yenAmt(tp.innerText || tp.textContent)) return;
+            } else {
+              var sel = q('select[id^=product_option_id]');
+              if (sel && sel.selectedIndex <= 0) return;
+            }
           }
           fireAtc();
         } catch (err) {}
       }
-      /* 🔴 click 에서 쏘면 늦다 — 담기는 폼 전송이라 그 순간 페이지가 넘어가고 GA4 전송이 잘린다
-         (9/6 실측: 같은 조작인데 어떤 때는 도착하고 어떤 때는 사라졌다).
-         눌리는 «순간»(mousedown/touchstart)에 먼저 쏘고, click 은 예비로만 남긴다.
-         같은 담기를 두 번 세지 않도록 fireAtc 안의 2초 서명 중복차단이 받아낸다. */
-      document.addEventListener('mousedown', maybeAtc, true);
-      document.addEventListener('touchstart', maybeAtc, true);
       document.addEventListener('click', maybeAtc, true);
       function markPay(e) {
         try {
@@ -298,19 +342,30 @@ var FJP_C24_OK = (function () {
         }
         push('view_cart2', { value: sum(vc), currency: CUR, items: vc });
 
+        /* 🔴 예전엔 장바구니에서 일어나는 «모든» 통신에 반응해 «체크된 줄 전부»를 삭제로 보고했다
+           → 수량만 바꿔도 삭제로 잡히고, 실제 삭제 뒤에는 줄 번호가 밀려 엉뚱한 상품이 실렸다
+              (2026-09-06 코드리뷰). → «그 줄이 실제로 사라졌는지»를 확인한 것만 보고한다.
+           한계: 삭제가 페이지 새로고침으로 처리되면 이 이벤트는 안 나간다(틀린 값보다 없는 값이 낫다). */
+        var pfx = window.BASKET_CHK_ID_PREFIX || 'basket_chk_';
+        function rowKeys() { return qa('[id^="' + pfx + '"]').map(function (c) { return c.id; }); }
+        var beforeKeys = rowKeys();
         hookBasketXhr(function () {
-          try {
-            var pfx = window.BASKET_CHK_ID_PREFIX || 'basket_chk_';
-            var rm = [];
-            qa('[id^="' + pfx + '"]').forEach(function (chk, k) {
-              if (chk.checked && B[k]) {
-                rm.push(item(B[k].product_no, B[k].product_name, B[k].main_cate_no,
-                             B[k].quantity, B[k].product_sum_price,
-                             stripOpt(B[k].option_str && B[k].option_str[0])));
-              }
-            });
-            if (rm.length) push('remove_from_cart2', { value: sum(rm), currency: CUR, items: rm });
-          } catch (e) {}
+          setTimeout(function () {
+            try {
+              var afterKeys = rowKeys(), gone = [];
+              beforeKeys.forEach(function (k, idx) {
+                if (afterKeys.indexOf(k) === -1 && B[idx]) gone.push(idx);
+              });
+              if (!gone.length) return;        /* 사라진 줄이 없다 = 수량 변경 등 → 보고 안 함 */
+              var rm = gone.map(function (idx) {
+                return item(B[idx].product_no, B[idx].product_name, B[idx].main_cate_no,
+                            B[idx].quantity, B[idx].product_sum_price,
+                            stripOpt(B[idx].option_str && B[idx].option_str[0]));
+              });
+              push('remove_from_cart2', { value: sum(rm), currency: CUR, items: rm });
+              beforeKeys = afterKeys;
+            } catch (e) {}
+          }, 600);                             /* 화면이 다시 그려질 틈을 준다 */
         });
       }
     }
@@ -329,12 +384,27 @@ var FJP_C24_OK = (function () {
       if (bc.length) push('begin_checkout2', { value: sum(bc), currency: CUR, items: bc }, attr());
 
       /* add_payment_info — 결제수단을 고른 순간(한국몰 addpayinfo.js 등가). 세션 1회. */
-      var apiFired = 0, touched = 0;
-      /* 사람이 화면을 «건드린 적이 있는지» — 카페24가 화면을 그리며 결제수단을 기본값으로
-         세팅하는 것을 «고객이 골랐다»로 오해하지 않기 위한 가드.
-         (change 이벤트의 isTrusted 만으로 거르면 브라우저·스킨에 따라 아예 못 잡는다) */
+      var apiFired = 0, payTouchAt = 0;
+      function isPayEl(el) {
+        try {
+          if (!el || !el.closest) return false;
+          var n = el.closest('select,input,label,li,tr,div');
+          for (var i = 0; i < 4 && n; i++, n = n.parentElement) {
+            var nm = (n.name || '') + ' ' + (n.id || '') + ' ' +
+                     (typeof n.className === 'string' ? n.className : '');
+            if (/paymethod|payment|pay_method|settle/i.test(nm)) return true;
+          }
+        } catch (e) {}
+        return false;
+      }
+      /* 🔴 예전엔 «화면 아무 곳»을 한 번만 건드려도 그 뒤의 모든 변경을 «고객 선택»으로 인정했다.
+         그래서 카페24가 스크립트로 되쏘는 기본값(銀行振込) 변경이 먼저 잡혀 자리를 차지하고
+         고객의 진짜 선택은 기록되지 않았다(2026-09-06 코드리뷰).
+         → «결제수단 칸 근처»를 3초 안에 실제로 건드린 경우만 인정한다. */
       ['pointerdown', 'mousedown', 'touchstart', 'keydown'].forEach(function (t) {
-        document.addEventListener(t, function (e) { if (e.isTrusted) touched = 1; }, true);
+        document.addEventListener(t, function (e) {
+          try { if (e.isTrusted && isPayEl(e.target)) payTouchAt = Date.now(); } catch (err) {}
+        }, true);
       });
       function firePayInfo(pt) {
         if (apiFired || !bc.length) return; apiFired = 1;
@@ -342,7 +412,7 @@ var FJP_C24_OK = (function () {
       }
       document.addEventListener('change', function (e) {
         try {
-          if (!e.isTrusted && !touched) return;
+          if (!e.isTrusted && !(payTouchAt && Date.now() - payTouchAt < 3000)) return;
           var t = e.target; if (!t) return;
           var isPay = (t.name && /paymethod|payment|pay_method|settle/i.test(t.name)) ||
                       (t.id && /paymethod|payment/i.test(t.id)) ||
@@ -360,27 +430,61 @@ var FJP_C24_OK = (function () {
 
     /* ── purchase ──────────────────────────────────────────────── */
     if (isDone) {
-      var E = window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA || {};
+      var E = (window.CAFE24 && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA) ||
+              window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA || {};
       var op = E.order_product;
-      if (op && op.length) {
+      /* 주문번호 — 한국몰 attr_capture.js 와 같은 순서로 찾는다 */
+      var oid = String(E.order_id || '');
+      if (!oid) { var om = location.search.match(/order_id=([0-9A-Za-z\-]+)/); if (om) oid = om[1]; }
+      if (!oid) { var ob = (document.body && document.body.innerText || '').match(/\d{8}-\d{7}/); if (ob) oid = ob[0]; }
+
+      /* 🔴 새로고침·뒤로가기 때마다 매출이 다시 잡히던 구멍을 막는다.
+         한국몰 관례 그대로 «최근 보낸 주문번호 20건»을 브라우저에 남겨 두 번 세지 않는다. */
+      var K_SENT = 'fjp_purchase_sent', sentList = [];
+      try { sentList = JSON.parse(localStorage.getItem(K_SENT) || '[]') || []; } catch (e) { sentList = []; }
+      var already = !!(oid && sentList.indexOf(oid) > -1);
+
+      if (op && op.length && oid && !already) {
+        /* 🔴 옵션 문자열을 «순서»로 갖다 붙이면 옵션 없는 상품이 섞였을 때 한 칸씩 밀린다.
+           → 상품 목록과 개수가 «정확히» 같을 때만 쓰고, 아니면 비워 둔다(틀린 옵션보다 빈 값이 낫다).
+           넓은 `p.option` 폴백은 결제·배송 안내문까지 긁어와서 제거했다. */
         var optTexts = [];
-        qa('li[title="옵션"] > p.option, li[title="オプション"] > p.option, p.option').forEach(function (p) {
-          var t = (p.textContent || '').trim();
+        qa('li[title="옵션"] > p.option, li[title="オプション"] > p.option').forEach(function (pe) {
+          var t = (pe.textContent || '').trim();
           if (/^\s*\[/.test(t)) optTexts.push(stripOpt(t));
         });
-        var pi = [], rev = op.slice().reverse();
+        var rev = op.slice().reverse();
+        var useOpt = (optTexts.length === rev.length);
+        var pi = [];
         rev.forEach(function (p, idx) {
+          /* 옵션 추가금이 있으면 단가에 더해 장바구니·주문서 금액과 어긋나지 않게 한다 */
+          var unit = num(p.product_price) + num(p.option_price || p.opt_price || 0);
           pi.push(item(p.product_no, p.product_name, p.category_no_3 || p.category_no_2,
-                       p.quantity, p.product_price, optTexts[idx] || ''));
+                       p.quantity, unit, useOpt ? (optTexts[idx] || '') : ''));
         });
-        var payEl = q('.pannelArea .ec-base-table span');
+        /* 🔴 화면에서 긁은 첫 글자를 그대로 결제수단으로 쓰면 주문번호·주문일 같은 값이 들어간다.
+           → 결제수단으로 «보이는 말»일 때만 채운다. */
+        function payLabel(sv) {
+          var t = String(sv || '').replace(/\s+/g, ' ').trim();
+          return /銀行振込|クレジット|カード|コンビニ|Pay-?easy|ペイジー|後払い|代金引換|PayPal|Amazon\s*Pay|楽天/i.test(t)
+                 ? t.slice(0, 40) : '';
+        }
+        var pt = payLabel(E.payment_method || E.pay_method || '');
+        if (!pt) {
+          var cands = qa('.pannelArea .ec-base-table span, .pannelArea .ec-base-table td, [class*=paymethod] span');
+          for (var pk = 0; pk < cands.length && !pt; pk++) pt = payLabel(cands[pk].textContent);
+        }
         push('purchase2', {
-          transaction_id: E.order_id || '',
+          transaction_id: oid,
           value: sum(pi),
           currency: CUR,
-          payment_type: payEl ? (payEl.textContent || '').trim() : '',
+          payment_type: pt,
           items: pi
         }, attr());
+        try {
+          sentList.push(oid);
+          localStorage.setItem(K_SENT, JSON.stringify(sentList.slice(-20)));
+        } catch (e) {}
       }
     }
 
@@ -428,10 +532,11 @@ var FJP_C24_OK = (function () {
     if (window.__fjptrkC24) return; window.__fjptrkC24 = 1;
 
     /* 상세페이지에서만 — 여기서 view 가 새면 퍼널 분모가 사이트 전체 PV 로 오염된다 */
+    if (!FJP_IS_PDP) return;
     var pm = location.search.match(/[?&]product_no=(\d+)/) ||
              location.pathname.match(/\/product\/[^\/]+\/(\d+)(?:\/|$)/);
     var PNO = pm ? pm[1] : (window.iProductNo ? String(window.iProductNo) : null);
-    if (!PNO || !/\/product\//.test(location.pathname)) return;
+    if (!PNO) return;
 
     var PFX = 'jp01';
     var TAG = 'p' + PNO + '|';          /* 라벨 앞에 상품번호 — 상품 3개가 같은 표에 섞여도 갈린다 */
@@ -757,28 +862,52 @@ var FJP_C24_OK = (function () {
 /* ══════════════ 모듈 D — GA4 user_id (한국몰 userid.js 이식) ══════════════
    로그인 회원의 카페24 «암호화된 회원식별값»을 한 번 더 해시해 GA4 user_id 로 세팅.
    기기를 바꿔가며 산 사람이 두 사람으로 세지는 것을 막는다.
-   ⛔ 원본 값은 어디에도 남기지 않는다(콘솔·저장소·dataLayer 전부). 이벤트도 쏘지 않는다. */
+   ⛔ 원본 값은 어디에도 남기지 않는다(콘솔·저장소·dataLayer 전부). 이벤트도 쏘지 않는다.
+   ⚠️ 이 파일에서 «구글 태그를 직접 부르는 곳»은 여기 한 곳뿐이다(의도된 예외).
+      값을 «세팅»만 하고 이벤트를 쏘지 않으므로 중복 발화 위험이 없고, 일본몰에 실린 구글
+      목적지는 GA4 하나뿐이다(2026-09-05 한국 GA4·구글광고 제거 완료). 목적지가 늘어나면
+      이 방식을 재검토할 것. 한국몰 userid.js 도 같은 방식이다. */
 (function () {
+  'use strict';
   try {
     if (!FJP_C24_OK) return;
     if (window.__fjpUid1) return; window.__fjpUid1 = 1;
-    function raw() {
+    if (!(window.crypto && window.crypto.subtle)) return;
+
+    function getMemberId() {
+      var v = '';
       try {
-        var a = (window.CAFE24 && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA) ||
-                window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA ||
-                window.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA || {};
-        return String(a.common_member_id_crypt || '');
-      } catch (e) { return ''; }
+        v = (window.CAFE24 && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA &&
+             window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA.common_member_id_crypt) || '';
+      } catch (e) {}
+      if (!v) { try { v = (window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA &&
+                           window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA.common_member_id_crypt) || ''; } catch (e) {} }
+      if (!v) { try { v = (window.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA &&
+                           window.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA.common_member_id_crypt) || ''; } catch (e) {} }
+      return v;
     }
+
+    /* 🔴 치명 방어(한국몰 userid.js:48 과 동일) — 비회원 화면이 내려주는 상수값('0'·'guest' 등)을
+       그대로 해시하면 «모든 비회원이 한 사람»으로 합쳐진다. 전부 아무것도 하지 않고 끝낸다. */
+    function isValid(v) {
+      if (!v) return false;
+      var t = String(v).trim().toLowerCase();
+      if (!t || t === '0' || t === 'guest' || t === 'null' || t === 'undefined') return false;
+      return true;
+    }
+
     function go() {
-      var v = raw();
-      if (!v) return;                        /* 비회원 = 아무것도 안 함 */
-      if (!(window.crypto && window.crypto.subtle)) return;
-      window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(v)).then(function (b) {
+      if (window.__fjpUidDone) return;
+      var raw = getMemberId();
+      if (!isValid(raw)) return;
+      window.__fjpUidDone = 1;
+      /* 한국몰과 «같은 사람»이 같은 값이 되도록 정규화·접두까지 동일하게 맞춘다 */
+      var toDigest = 'fitable:' + String(raw).trim().toLowerCase();
+      window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(toDigest)).then(function (b) {
         try {
           var h = Array.prototype.map.call(new Uint8Array(b), function (x) {
             return ('0' + x.toString(16)).slice(-2); }).join('');
-          if (typeof window.gtag === 'function') window.gtag('set', { user_id: h });
+          if (typeof window.gtag === 'function') window.gtag('set', { 'user_id': h });
         } catch (e) {}
       }).catch(function () {});
     }
