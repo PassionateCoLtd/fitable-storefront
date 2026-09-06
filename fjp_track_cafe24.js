@@ -83,14 +83,25 @@ var FJP_IS_PDP = (function () {
     /* 유효기간 — 한국몰 attr_capture.js 관례 그대로: 최종유입 30일 · 최초유입 90일.
        없으면 «3개월 전 광고»가 영원히 마지막 유입 자리를 차지한다. */
     var TTL_LT = 30 * 24 * 3600 * 1000, TTL_FT = 90 * 24 * 3600 * 1000, NOW = Date.now();
+    /* 기한 지난 유입을 «지우는» 함수 — 저장할 때와 읽을 때 «같은 규칙»을 쓴다.
+       (한쪽에만 두면 기한이 지난 값이 저장소에 남아 그대로 실려 나간다) */
+    function prune(v, t) {
+      v = v || {};
+      if (v.lt_source && !v.lt_ts) v.lt_ts = t;        /* 옛 기록엔 시각이 없다 → 지금부터 나이를 센다 */
+      if (v.ft_source && !v.ft_ts) v.ft_ts = t;
+      if (v.lt_ts && t - v.lt_ts > TTL_LT) {
+        delete v.lt_source; delete v.lt_medium; delete v.lt_campaign; delete v.lt_content; delete v.lt_ts;
+      }
+      if (v.ft_ts && t - v.ft_ts > TTL_FT) {
+        delete v.ft_source; delete v.ft_medium; delete v.ft_campaign; delete v.ft_content; delete v.ft_ts;
+      }
+      return v;
+    }
     var store = {};
     try { store = JSON.parse(LS.getItem(K) || '{}') || {}; } catch (e) { store = {}; }
-    if (store.lt_ts && NOW - store.lt_ts > TTL_LT) {
-      store.lt_source = store.lt_medium = store.lt_campaign = store.lt_content = undefined; store.lt_ts = 0;
-    }
-    if (store.ft_ts && NOW - store.ft_ts > TTL_FT) {
-      store.ft_source = store.ft_medium = store.ft_campaign = store.ft_content = undefined; store.ft_ts = 0;
-    }
+    var pruned = JSON.stringify(store);
+    store = prune(store, NOW);
+    if (JSON.stringify(store) !== pruned) { try { LS.setItem(K, JSON.stringify(store)); } catch (e) {} }
     var now = current();
     /* 🔴 몰 안에서 페이지를 옮기면 referrer 가 비어 있는 경우가 있다(주문 흐름은 POST 라 특히).
        그때 (direct) 로 덮으면 «광고로 들어온 사람»이 결제 시점에 직접유입으로 둔갑한다(9/6 실측).
@@ -107,10 +118,10 @@ var FJP_IS_PDP = (function () {
     }
     window.__fjpAttr = function () {
       try {
-        var v = JSON.parse(LS.getItem(K) || '{}') || {}, out = {};
+        var v = prune(JSON.parse(LS.getItem(K) || '{}') || {}, Date.now()), out = {};
         ['ft_source','ft_medium','ft_campaign','ft_content',
          'lt_source','lt_medium','lt_campaign','lt_content'].forEach(function (k) {
-          if (v[k]) out[k] = v[k];       /* ts 같은 내부 필드는 GA4 로 안 내보낸다 */
+          if (v[k]) out[k] = v[k];       /* 시각 같은 내부 필드는 GA4 로 안 내보낸다 */
         });
         return out;
       } catch (e) { return {}; }
