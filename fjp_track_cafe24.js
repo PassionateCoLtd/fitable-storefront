@@ -329,14 +329,20 @@ var FJP_C24_OK = (function () {
       if (bc.length) push('begin_checkout2', { value: sum(bc), currency: CUR, items: bc }, attr());
 
       /* add_payment_info — 결제수단을 고른 순간(한국몰 addpayinfo.js 등가). 세션 1회. */
-      var apiFired = 0;
+      var apiFired = 0, touched = 0;
+      /* 사람이 화면을 «건드린 적이 있는지» — 카페24가 화면을 그리며 결제수단을 기본값으로
+         세팅하는 것을 «고객이 골랐다»로 오해하지 않기 위한 가드.
+         (change 이벤트의 isTrusted 만으로 거르면 브라우저·스킨에 따라 아예 못 잡는다) */
+      ['pointerdown', 'mousedown', 'touchstart', 'keydown'].forEach(function (t) {
+        document.addEventListener(t, function (e) { if (e.isTrusted) touched = 1; }, true);
+      });
       function firePayInfo(pt) {
         if (apiFired || !bc.length) return; apiFired = 1;
         push('add_payment_info2', { value: sum(bc), currency: CUR, items: bc, payment_type: pt || '' }, attr());
       }
       document.addEventListener('change', function (e) {
         try {
-          if (!e.isTrusted) return;
+          if (!e.isTrusted && !touched) return;
           var t = e.target; if (!t) return;
           var isPay = (t.name && /paymethod|payment|pay_method|settle/i.test(t.name)) ||
                       (t.id && /paymethod|payment/i.test(t.id)) ||
