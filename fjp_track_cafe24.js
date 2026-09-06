@@ -317,22 +317,32 @@ var FJP_IS_PDP = (function () {
         return p ? (p.textContent || '').trim().slice(0, 80) : '_';
       }
       /* 옵션이 여러 줄이면 줄마다 1 아이템(한국몰 updateOptionFields 와 같은 규칙) */
+      /* 🔴 2026-09-06 실측 수리 — 담기 금액이 정확히 2배로 나갔다.
+         상세페이지 옵션줄의 `input.option_box_price` 는 «단가»가 아니라 «그 줄의 합계»다
+         (수량 2 · 단가 ¥49,900 일 때 값이 99,800). 그걸 단가 자리에 넣고 수량을 또 곱했다.
+         → 줄 합계 ÷ 줄 수량으로 단가를 되돌린다. 장바구니·주문서와 같은 금액이 된다. */
+      function unitOf(lineTotal, q1, fallback) {
+        var n = num(lineTotal), k = num(q1) || 1;
+        if (!n) return fallback;
+        return k > 0 ? n / k : n;
+      }
       function applyOptionRows(items) {
         var rows = qa('tbody.option_products tr.option_product');
         if (!rows.length || !items.length) return;
         var base = items[0], out = [];
         rows.forEach(function (r) {
           var qv = q('input.quantity_opt', r), pv = q('input.option_box_price', r), nv = q('p.product span', r);
-          out.push(item(base.item_id, base.item_name, base.item_category,
-                        qv ? num(qv.value) || base.quantity : base.quantity,
-                        pv ? num(pv.value) || base.price : base.price,
+          var qn = qv ? (num(qv.value) || base.quantity) : base.quantity;
+          out.push(item(base.item_id, base.item_name, base.item_category, qn,
+                        pv ? unitOf(pv.value, qn, base.price) : base.price,
                         nv ? (nv.textContent || '').trim() : base.item_variant));
         });
         qa('tbody.add_products tr.add_product').forEach(function (r) {
           var idv = q('input.add_product_id', r), nv = q('p.product', r),
               qv = q('input.quantity_add', r), pv = q('input.add_product_option_box_price', r);
+          var qn = qv ? (num(qv.value) || 1) : 1;
           out.push(item(idv ? idv.value : '', nv ? (nv.textContent || '').trim() : '', '',
-                        qv ? num(qv.value) || 1 : 1, pv ? num(pv.value) : 0,
+                        qn, pv ? unitOf(pv.value, qn, 0) : 0,
                         nv ? (nv.textContent || '').trim() : ''));
         });
         items.length = 0; Array.prototype.push.apply(items, out);
