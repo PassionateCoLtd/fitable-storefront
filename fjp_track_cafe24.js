@@ -47,6 +47,20 @@ var FJP_IS_PDP = (function () {
   } catch (e) { return false; }
 })();
 
+/* 회원인지 아닌지만 판정한다 — ⛔ 식별값은 절대 밖으로 내보내지 않는다(해시 user_id 로만).
+   모듈 F(클래리티)가 쓰던 로직을 공용으로 끌어올린 것. */
+function FJP_MEMBER() {
+  try {
+    var v = '';
+    try { v = (window.CAFE24 && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA &&
+               window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA.common_member_id_crypt) || ''; } catch (e) {}
+    if (!v) { try { v = (window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA &&
+                         window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA.common_member_id_crypt) || ''; } catch (e) {} }
+    var t = String(v || '').trim().toLowerCase();
+    return (!t || t === '0' || t === 'guest' || t === 'null' || t === 'undefined') ? 'guest' : 'member';
+  } catch (e) { return 'guest'; }
+}
+
 /* ══════════════ 개인정보 세정 (2026-09-07 신설) ══════════════
    🔴 클릭 계측이 링크 주소와 버튼 글자를 «원문 그대로» GA4 로 보내고 있었다.
       우리 재입고 알림 버튼이 `mailto:cs@…?subject=…` 라 이 경로가 이미 살아 있었다.
@@ -157,6 +171,22 @@ var FJP_PII = (function () {
       store.lt_campaign = now.campaign; store.lt_content = now.content; store.lt_ts = NOW;
       try { LS.setItem(K, JSON.stringify(store)); } catch (e) {}
     }
+    /* ══ 유입정보·회원여부를 «페이지당 한 번» dataLayer 에 깔아 둔다 (2026-09-07 신설) ══
+       🔑 GTM 의 데이터영역은 «한 번 넣은 값이 그 페이지 내내 유지»된다. 그래서 여기서 한 번만
+          깔아두면 그 뒤에 발생하는 모든 이벤트(스크롤·클릭·상품조회·가입…)의 태그가
+          같은 값을 읽는다. 이벤트마다 일일이 붙일 필요가 없고, 빠뜨릴 위험도 없다.
+       ⚠️ event 키를 넣지 않는다 — 값만 갱신하고 아무 태그도 발동시키지 않기 위해서다. */
+    try {
+      var seed = { member: FJP_MEMBER() };
+      var a0 = {};
+      try { a0 = JSON.parse(LS.getItem(K) || '{}') || {}; } catch (e) {}
+      ['ft_source','ft_medium','ft_campaign','ft_content',
+       'lt_source','lt_medium','lt_campaign','lt_content'].forEach(function (k2) {
+        if (a0[k2]) seed[k2] = a0[k2];
+      });
+      (window.dataLayer = window.dataLayer || []).push(seed);
+    } catch (e) {}
+
     window.__fjpAttr = function () {
       try {
         var v = prune(JSON.parse(LS.getItem(K) || '{}') || {}, Date.now()), out = {};
@@ -178,20 +208,13 @@ var FJP_PII = (function () {
     if (!FJP_C24_OK) return;
     if (window.__fjpClarityTagged) return; window.__fjpClarityTagged = 1;
     function tag(k, v) { try { if (v && typeof window.clarity === 'function') window.clarity('set', k, String(v).slice(0, 80)); } catch (e) {} }
-    function memberFlag() {
-      var v = '';
-      try { v = (window.CAFE24 && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA.common_member_id_crypt) || ''; } catch (e) {}
-      if (!v) { try { v = (window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA && window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA.common_member_id_crypt) || ''; } catch (e) {} }
-      var t = String(v || '').trim().toLowerCase();
-      return (!t || t === '0' || t === 'guest' || t === 'null' || t === 'undefined') ? 'guest' : 'member';
-    }
     var a = (window.__fjpAttr && window.__fjpAttr()) || {};
     var pm = location.pathname.match(/\/(\d+)\/?$/) || location.search.match(/product_no=(\d+)/);
     if (pm && /\/product\//.test(location.pathname)) tag('product_no', pm[1]);
     if (a.lt_source) tag('lt_source', a.lt_source + ' / ' + (a.lt_medium || ''));
     if (a.lt_campaign) tag('lt_campaign', a.lt_campaign);
     if (a.lt_content) tag('lt_content', a.lt_content);
-    tag('member', memberFlag());
+    tag('member', FJP_MEMBER());
   } catch (e) {}
 })();
 
@@ -336,7 +359,7 @@ var FJP_PII = (function () {
                      qty(),
                      (typeof window.product_price !== 'undefined' ? window.product_price : 0),
                      '_')];
-      push('view_item2', { value: sum(vi), currency: CUR, items: vi });
+      push('view_item2', { value: sum(vi), currency: CUR, items: vi }, attr());
 
       /* ── add_to_cart : 카페24 담기 ajax(/exec/front/order/basket/) 응답을 훅 ──
          🔴 한국몰 3중 발화 재발 방지 3겹:
@@ -580,7 +603,7 @@ var FJP_PII = (function () {
                          B[i].quantity, unitPrice(B[i]),
                          stripOpt(B[i].option_str && B[i].option_str[0])));
           }
-          push('view_cart2', { value: sum(vc), currency: CUR, items: vc });
+          push('view_cart2', { value: sum(vc), currency: CUR, items: vc }, attr());
           liveSnap = snapshot();          /* 기준 스냅샷도 이때 다시 잡는다 */
           return true;
         }, { forceAtDeadline: false });
@@ -680,6 +703,26 @@ var FJP_PII = (function () {
         } catch (e) {}
       }, 5000);
     }
+
+    /* ══ 가입·로그인 (2026-09-07 신설) ══
+       🔴 가입 태그는 원래 «화면이 열리는 순간»에 걸려 있었다. 그 시점엔 우리 유입정보가 아직
+          안 깔려 있어서 «어느 광고로 들어와 가입했는지»가 통째로 비었다(실측: 전부 (not set)).
+          → 유입정보를 깐 «뒤»에 우리가 직접 신호를 보내고, 태그는 그 신호를 받게 바꾼다. */
+    if (/\/member\/join_result/.test(path)) {
+      try {
+        (window.dataLayer = window.dataLayer || []).push(
+          Object.assign({ event: 'jp_sign_up', method: 'cafe24', member: FJP_MEMBER() }, attr()));
+      } catch (e) {}
+    }
+    /* 로그인 — 카페24는 «로그인 성공» 자체를 알려주는 신호가 없다.
+       그래서 «이 방문에서 처음으로 로그인 상태가 확인된 순간»을 로그인으로 본다(방문당 1회). */
+    try {
+      if (FJP_MEMBER() === 'member' && !sessionStorage.getItem('fjp_login_sent')) {
+        sessionStorage.setItem('fjp_login_sent', '1');
+        (window.dataLayer = window.dataLayer || []).push(
+          Object.assign({ event: 'jp_login', method: 'cafe24', member: 'member' }, attr()));
+      }
+    } catch (e) {}
 
     /* ── purchase ──────────────────────────────────────────────── */    if (isDone) {
       /* 🔴 2026-09-07 2차 수정 — 첫 실주문에서 GA4 구매가 빠진 «진짜» 원인은
