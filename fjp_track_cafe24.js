@@ -543,7 +543,12 @@ var FJP_IS_PDP = (function () {
       try { sentList = JSON.parse(localStorage.getItem(K_SENT) || '[]') || []; } catch (e) { sentList = []; }
       var already = !!(oid && sentList.indexOf(oid) > -1);
 
-      if (op && op.length && oid && !already) {
+      /* 🔴 2026-09-07 실주문 1건(20260907-0000366)을 계기로 완화.
+         예전엔 «주문상품 목록(op)이 있을 때»를 발화 조건으로 걸었는데, 그 필드는 화면·스킨에 따라
+         이름이나 존재 여부가 달라질 수 있다. 목록을 못 읽었다고 «구매 자체»를 통째로 놓치는 것은
+         너무 큰 손해다. → 메타 태그 45 와 같은 원칙: **가드는 주문번호 하나로 충분하다.**
+         주문상품 목록은 «금액·품목 계산»에만 쓰고 발화 조건에서는 뺀다. */
+      if (oid && !already) {
         /* 🔴 옵션 문자열을 «순서»로 갖다 붙이면 옵션 없는 상품이 섞였을 때 한 칸씩 밀린다.
            → 상품 목록과 개수가 «정확히» 같을 때만 쓰고, 아니면 비워 둔다(틀린 옵션보다 빈 값이 낫다).
            넓은 `p.option` 폴백은 결제·배송 안내문까지 긁어와서 제거했다. */
@@ -552,8 +557,8 @@ var FJP_IS_PDP = (function () {
           var t = (pe.textContent || '').trim();
           if (/^\s*\[/.test(t)) optTexts.push(stripOpt(t));
         });
-        var rev = op.slice().reverse();
-        var useOpt = (optTexts.length === rev.length);
+        var rev = (op && op.length) ? op.slice().reverse() : [];    /* 목록이 없어도 진행한다 */
+        var useOpt = (rev.length > 0 && optTexts.length === rev.length);
         var pi = [];
         rev.forEach(function (p, idx) {
           /* 옵션 추가금이 있으면 단가에 더해 장바구니·주문서 금액과 어긋나지 않게 한다 */
@@ -572,13 +577,23 @@ var FJP_IS_PDP = (function () {
           var cands = qa('.pannelArea .ec-base-table span, .pannelArea .ec-base-table td, [class*=paymethod] span');
           for (var pk = 0; pk < cands.length && !pt; pk++) pt = payLabel(cands[pk].textContent);
         }
-        push('purchase2', {
-          transaction_id: oid,
-          value: sum(pi),
-          currency: CUR,
-          payment_type: pt,
-          items: pi
-        }, attr());
+        /* 금액 — ①주문상품 계산 ②화면의 「お支払総額/合計」 순서.
+           🔴 둘 다 실패하면 value 를 «아예 빼고» 보낸다. 0 으로 보내면 «0원짜리 진짜 주문»으로
+              기록돼 매출·평균단가·광고 ROAS 를 조용히 갉아먹는다. 값이 없는 편이 낫다
+              (구매 건수는 남고, 금액은 나중에 카페24 주문원장으로 메울 수 있다). */
+        var val = sum(pi);
+        if (!val) {
+          var bt = (document.body && document.body.innerText) || '';
+          var vm = bt.match(/お支払い?総額[^0-9]{0,12}([0-9][0-9,]*)/)
+                || bt.match(/お支払い?合計[^0-9]{0,12}([0-9][0-9,]*)/)
+                || bt.match(/([0-9][0-9,]{2,})\s*(?:円|JPY)/)
+                || bt.match(/[¥￥]\s*([0-9][0-9,]{2,})/);
+          if (vm) val = parseFloat(vm[1].replace(/,/g, '')) || 0;
+        }
+        var ec = { transaction_id: oid, currency: CUR, items: pi };
+        if (val) ec.value = val;                 /* 못 구하면 키 자체를 안 넣는다(0 금지) */
+        if (pt) ec.payment_type = pt;
+        push('purchase2', ec, attr());
         try {
           sentList.push(oid);
           localStorage.setItem(K_SENT, JSON.stringify(sentList.slice(-20)));
