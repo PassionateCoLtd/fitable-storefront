@@ -647,20 +647,54 @@ var FJP_IS_PDP = (function () {
           for (var pk = 0; pk < cands.length && !pt; pk++) pt = payLabel(cands[pk].textContent);
         }
 
-        /* 금액 — ①주문상품 계산 ②화면의 「お支払総額/合計」 순서.
-           🔴 둘 다 실패하면 value 를 «아예 빼고» 보낸다. 0 으로 보내면 «0원짜리 진짜 주문»으로
-              기록돼 매출·평균단가·광고 성과를 조용히 갉아먹는다. */
-        var val = sum(pi);
+        /* ══ 금액 — «고객이 실제로 낸 돈»이 정본 (2026-09-07 3차 수정) ══
+           🔴 예전엔 «상품 단가×수량 합계»를 정본으로 쓰고 화면의 결제총액을 폴백으로 뒀다.
+              상품 합계에는 **쿠폰·할인이 반영되지 않아 매출과 ROAS 가 부풀어 오른다.**
+              실증: 주문 20260907-0000366 — 상품합계 ¥49,900 vs 실결제 ¥49,700(쿠폰 ¥200).
+              쿠폰을 크게 걸수록 그만큼 통째로 과대계상된다. → 우선순위를 뒤집는다.
+           순서: ①카페24가 내려주는 «결제금액» 필드 ②화면의 「お支払総額/合計」 ③상품합계 ④없으면 생략
+           ⚠️ 배송비: value 는 «고객이 낸 총액»이라 배송비가 포함된다(GA4 표준). 배송비를 따로 읽을 수
+              있으면 shipping 파라미터로도 넣는다. 현재 일본몰은 送料 ¥0 이라 실질 차이는 없다.
+           ⚠️ items 안의 price 는 «상품 단가» 그대로 둔다(GA4 표준). 그래서 items 합계와 value 가
+              쿠폰·배송비만큼 어긋날 수 있는데 정상이다 — 할인은 주문 단위로 붙기 때문이다.
+           ⚠️ 한국몰은 아직 «상품합계»를 쓴다(같은 결함). 두 나라 정의가 갈리므로 GA4 매출을
+              한·일 비교에 쓸 땐 주의. 한국은 누적이 커서 정의 변경에 대표 판단이 필요 — 별건. */
+        function sane(n, base) {
+          n = parseFloat(n); if (!isFinite(n) || n <= 0) return 0;
+          if (base > 0 && (n < base * 0.1 || n > base * 3)) return 0;   /* 엉뚱한 필드 방어 */
+          return n;
+        }
+        var itemsTotal = sum(pi);
+        var val = 0, shipFee = 0;
+        /* ① 카페24 전역의 결제금액 — 화면마다 이름이 달라 후보를 넓게 잡는다 */
+        var PAY_KEYS = ['payment_amount', 'total_payment_amount', 'actual_payment_amount',
+                        'settle_price', 'order_amount', 'total_price', 'pay_amount',
+                        'order_price_amount', 'total_order_amount'];
+        for (var ki = 0; ki < PAY_KEYS.length && !val; ki++) {
+          try { val = sane(ctx.E[PAY_KEYS[ki]], itemsTotal); } catch (e) {}
+        }
+        /* ② 화면의 «결제 총액» — 라벨이 붙은 것만 쓴다(아무 ¥ 숫자나 집으면 상품가를 총액으로 오인) */
+        var bt = (document.body && document.body.innerText) || '';
         if (!val) {
-          var bt = (document.body && document.body.innerText) || '';
           var vm = bt.match(/お支払い?総額[^0-9]{0,12}([0-9][0-9,]*)/)
                 || bt.match(/お支払い?合計[^0-9]{0,12}([0-9][0-9,]*)/)
-                || bt.match(/([0-9][0-9,]{2,})\s*(?:円|JPY)/)
-                || bt.match(/[¥￥]\s*([0-9][0-9,]{2,})/);
-          if (vm) val = parseFloat(vm[1].replace(/,/g, '')) || 0;
+                || bt.match(/ご請求[^0-9]{0,12}([0-9][0-9,]*)/)
+                || bt.match(/合計金額[^0-9]{0,12}([0-9][0-9,]*)/);
+          if (vm) val = sane(vm[1].replace(/,/g, ''), itemsTotal);
         }
+        /* ③ 그래도 없으면 상품합계(할인 전) — 없는 것보다는 낫다 */
+        if (!val) val = itemsTotal;
+        /* 배송비(있으면 별도 파라미터로) */
+        try {
+          for (var si = 0; si < 3 && !shipFee; si++) {
+            shipFee = parseFloat(ctx.E[['shipping_fee', 'delivery_fee', 'shipping_charge'][si]]) || 0;
+          }
+          if (!shipFee) { var sm = bt.match(/(?:送料|配送料)[^0-9]{0,12}([0-9][0-9,]*)/); if (sm) shipFee = parseFloat(sm[1].replace(/,/g, '')) || 0; }
+        } catch (e) {}
+
         var ec = { transaction_id: ctx.oid, currency: CUR, items: pi };
-        if (val) ec.value = val;
+        if (val) ec.value = val;              /* 못 구하면 키 자체를 안 넣는다(0 금지) */
+        if (shipFee > 0) ec.shipping = shipFee;
         if (pt) ec.payment_type = pt;
         push('purchase2', ec, attr());
         try {
