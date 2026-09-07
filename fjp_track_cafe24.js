@@ -173,6 +173,44 @@ var FJP_IS_PDP = (function () {
       } catch (e) {}
     }
     function attr() { try { return (window.__fjpAttr && window.__fjpAttr()) || {}; } catch (e) { return {}; } }
+
+    /* ══ 준비되면 «한 번만» 실행 (2026-09-07 신설) ══
+       🔴 카페24의 주문·장바구니 값(aBasketProductData·order_product 등)은 «본문 인라인 스크립트»가
+          채운다. 그런데 이 파일은 GTM 이 async 로 넣기 때문에 그보다 «먼저» 실행될 수 있다.
+          먼저 실행되면 값이 텅 빈 채로 읽힌다 — 2026-09-07 첫 실주문에서 GA4 구매가 통째로
+          빠진 진짜 원인이 이것이었다.
+       🔑 한국몰도 같은 이유로 늦게 읽는다: 이커머스 코드는 `window.onload`(load 이벤트) 뒤,
+          주문귀속(attr_capture.js)은 거기서 **다시 600ms** 뒤(`setTimeout(orderAttr, 600)`).
+       🔑 이 파일 안에서도 회원식별(모듈 D)은 이미 `setTimeout(go, 3000)` 으로 대비해 놓고
+          정작 «구매»에는 안 넣었던 것이 사고의 전부다.
+       ⛔ «먼저 쏘고 나중에 재시도»는 쓰지 않는다 — 중복 발화·빈 값으로 «보냄» 처리되는 사고가 난다.
+       ✅ 준비될 때까지 짧게 기다렸다가 한 번만 보낸다. run() 이 true 를 돌려줘야 «보냈다»로 친다. */
+    function whenReady(isReady, run, opts) {
+      opts = opts || {};
+      var delays = opts.delays || [0, 300, 600, 1200, 2500, 4000];   /* 마지막이 마감시한 */
+      var done = false;
+      function attempt(force) {
+        if (done) return;
+        var ok = false;
+        try { if (!isReady() && !force) return; } catch (e) { if (!force) return; }
+        try { ok = run(force); } catch (e) { ok = false; }
+        if (ok) done = true;
+      }
+      for (var i = 0; i < delays.length; i++) {
+        (function (ms, last) {
+          setTimeout(function () { attempt(last && opts.forceAtDeadline !== false); }, ms);
+        })(delays[i], i === delays.length - 1);
+      }
+      if (opts.flushOnExit) {
+        /* 사용자가 일찍 떠나도 마지막으로 한 번 — 중복은 주문번호로 막힌다 */
+        var flush = function () { attempt(true); };
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'hidden') flush();
+        }, true);
+        window.addEventListener('pagehide', flush, true);
+      }
+      return { flush: function () { attempt(true); } };
+    }
     function num(v) {
       var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, ''));
       return isFinite(n) ? n : 0;
@@ -388,25 +426,16 @@ var FJP_IS_PDP = (function () {
 
     /* ── view_cart / remove_from_cart ───────────────────────────── */
     if (isCart) {
-      var B = window.aBasketProductData;
-      if (B && B.length) {
-        var vc = [];
-        for (var i = 0; i < B.length; i++) {
-          vc.push(item(B[i].product_no, B[i].product_name, B[i].main_cate_no,
-                       B[i].quantity, unitPrice(B[i]),
-                       stripOpt(B[i].option_str && B[i].option_str[0])));
-        }
-        push('view_cart2', { value: sum(vc), currency: CUR, items: vc });
-
-        /* 삭제 감지 — 🔴 일본몰에서 «삭제»는 통신(ajax)이 아니라 «페이지 새로고침»으로 처리된다
+      /* 삭제 감지 — 🔴 일본몰에서 «삭제»는 통신(ajax)이 아니라 «페이지 새로고침»으로 처리된다
            (2026-09-06 퍼널 실측: 2줄→1줄로 줄었는데 통신 훅이 한 번도 안 걸렸다).
            그래서 ①삭제 버튼을 «누른 사실»을 적어두고 ②다음 장바구니 화면에서 «실제로 사라진 줄»만
            보고한다. 확인창에서 «취소»를 눌렀으면 줄이 그대로라 아무것도 안 나간다.
            통신으로 처리하는 스킨을 위해 통신 훅도 함께 남겨 둔다(둘 다 «사라진 줄»만 본다). */
-        var pfx = window.BASKET_CHK_ID_PREFIX || 'basket_chk_';
-        var RM_PEND = 'fjp_rm_pending';
-        function rowKeys() { return qa('[id^="' + pfx + '"]').map(function (c) { return c.id; }); }
-        function snapshot() {
+      var pfx = window.BASKET_CHK_ID_PREFIX || 'basket_chk_';
+      var RM_PEND = 'fjp_rm_pending';
+      function rowKeys() { return qa('[id^="' + pfx + '"]').map(function (c) { return c.id; }); }
+      function snapshot() {
+          var B = window.aBasketProductData || [];
           var snap = {};
           rowKeys().forEach(function (k, idx) {
             if (B[idx]) snap[k] = { p: B[idx].product_no, n: B[idx].product_name,
@@ -428,7 +457,9 @@ var FJP_IS_PDP = (function () {
           return rm.length;
         }
 
-        /* ① 지난 화면에서 삭제를 눌렀다면, 지금 화면에서 «정말 사라졌는지» 확인해 보고한다 */
+        /* ① 지난 화면에서 삭제를 눌렀다면, 지금 화면에서 «정말 사라졌는지» 확인해 보고한다.
+           🔑 이 확인은 «장바구니가 비어 있어도» 해야 한다 — 마지막 한 줄을 지운 경우가 정확히
+              그 상황이라, 내용 준비를 기다리는 안쪽에 두면 영영 보고되지 않는다. */
         try {
           var pend = sessionStorage.getItem(RM_PEND);
           if (pend) {
@@ -466,21 +497,31 @@ var FJP_IS_PDP = (function () {
             } catch (e) {}
           }, 600);
         });
-      }
+
+      /* ④ 장바구니 «내용»은 늦게 채워질 수 있다 → 준비되면 한 번만 보낸다.
+         마감시한에도 강제로 보내지 않는다 — 정말로 빈 장바구니면 보낼 것이 없다(허수 금지). */
+      whenReady(
+        function () { var B = window.aBasketProductData; return !!(B && B.length); },
+        function () {
+          var B = window.aBasketProductData;
+          if (!(B && B.length)) return false;
+          var vc = [];
+          for (var i = 0; i < B.length; i++) {
+            vc.push(item(B[i].product_no, B[i].product_name, B[i].main_cate_no,
+                         B[i].quantity, unitPrice(B[i]),
+                         stripOpt(B[i].option_str && B[i].option_str[0])));
+          }
+          push('view_cart2', { value: sum(vc), currency: CUR, items: vc });
+          liveSnap = snapshot();          /* 기준 스냅샷도 이때 다시 잡는다 */
+          return true;
+        }, { forceAtDeadline: false });
     }
 
     /* ── begin_checkout ────────────────────────────────────────── */
     if (isForm) {
-      var O = window.aBasketProductOrderData;
+      /* 🔑 주문 내용은 아래 whenReady 가 «준비된 뒤» 채운다.
+         결제수단 «듣기»는 지금 바로 걸어 둔다 — 고객이 우리보다 먼저 고를 수 있기 때문이다. */
       var bc = [];
-      if (O && O.length) {
-        for (var j = 0; j < O.length; j++) {
-          bc.push(item(O[j].product_no, O[j].product_name, O[j].main_cate_no,
-                       O[j].quantity, unitPrice(O[j]),
-                       stripOpt(O[j].option_str && O[j].option_str[0])));
-        }
-      }
-      if (bc.length) push('begin_checkout2', { value: sum(bc), currency: CUR, items: bc }, attr());
 
       /* add_payment_info — 결제수단을 고른 순간(한국몰 addpayinfo.js 등가). 세션 1회. */
       var apiFired = 0, payTouchAt = 0;
@@ -525,46 +566,74 @@ var FJP_IS_PDP = (function () {
           firePayInfo(lab);
         } catch (err) {}
       }, true);
+
+      /* 주문 내용이 채워지면 «한 번만» 보낸다. 마감시한에도 강제 발사하지 않는다
+         — 정말로 빈 주문서면 보낼 것이 없다(허수 금지). */
+      whenReady(
+        function () { var O = window.aBasketProductOrderData; return !!(O && O.length); },
+        function () {
+          var O = window.aBasketProductOrderData;
+          if (!(O && O.length)) return false;
+          bc.length = 0;
+          for (var j = 0; j < O.length; j++) {
+            bc.push(item(O[j].product_no, O[j].product_name, O[j].main_cate_no,
+                         O[j].quantity, unitPrice(O[j]),
+                         stripOpt(O[j].option_str && O[j].option_str[0])));
+          }
+          if (!bc.length) return false;
+          push('begin_checkout2', { value: sum(bc), currency: CUR, items: bc }, attr());
+          return true;
+        }, { forceAtDeadline: false });
     }
 
-    /* ── purchase ──────────────────────────────────────────────── */
-    if (isDone) {
-      var E = (window.CAFE24 && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA) ||
-              window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA || {};
-      var op = E.order_product;
-      /* 주문번호 — 한국몰 attr_capture.js 와 같은 순서로 찾는다 */
-      var oid = String(E.order_id || '');
-      if (!oid) { var om = location.search.match(/order_id=([0-9A-Za-z\-]+)/); if (om) oid = om[1]; }
-      if (!oid) { var ob = (document.body && document.body.innerText || '').match(/\d{8}-\d{7}/); if (ob) oid = ob[0]; }
+    /* ── purchase ──────────────────────────────────────────────── */    if (isDone) {
+      /* 🔴 2026-09-07 2차 수정 — 첫 실주문에서 GA4 구매가 빠진 «진짜» 원인은
+         「목록이 없었다」가 아니라 **「아직 안 채워졌는데 너무 일찍 읽었다」** 였다.
+         주문번호는 주소·본문에도 있어서 찾아졌지만(그래서 메타는 발화) 카페24 전역의
+         order_product 만 그 시점에 비어 있었다.
+         → 채워질 때까지 짧게 기다렸다가 «한 번만» 보낸다(whenReady 주석 참조). */
+      var K_SENT = 'fjp_purchase_sent';
 
-      /* 🔴 새로고침·뒤로가기 때마다 매출이 다시 잡히던 구멍을 막는다.
-         한국몰 관례 그대로 «최근 보낸 주문번호 20건»을 브라우저에 남겨 두 번 세지 않는다. */
-      var K_SENT = 'fjp_purchase_sent', sentList = [];
-      try { sentList = JSON.parse(localStorage.getItem(K_SENT) || '[]') || []; } catch (e) { sentList = []; }
-      var already = !!(oid && sentList.indexOf(oid) > -1);
+      function orderCtx() {
+        var E = (window.CAFE24 && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA) ||
+                window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA || {};
+        /* 주문번호 — 한국몰 attr_capture.js 와 같은 순서로 찾는다 */
+        var oid = String(E.order_id || '');
+        if (!oid) { var om = location.search.match(/order_id=([0-9A-Za-z\-]+)/); if (om) oid = om[1]; }
+        if (!oid) { var ob = (document.body && document.body.innerText || '').match(/\d{8}-\d{7}/); if (ob) oid = ob[0]; }
+        return { E: E, op: E.order_product, oid: oid };
+      }
 
-      /* 🔴 2026-09-07 실주문 1건(20260907-0000366)을 계기로 완화.
-         예전엔 «주문상품 목록(op)이 있을 때»를 발화 조건으로 걸었는데, 그 필드는 화면·스킨에 따라
-         이름이나 존재 여부가 달라질 수 있다. 목록을 못 읽었다고 «구매 자체»를 통째로 놓치는 것은
-         너무 큰 손해다. → 메타 태그 45 와 같은 원칙: **가드는 주문번호 하나로 충분하다.**
-         주문상품 목록은 «금액·품목 계산»에만 쓰고 발화 조건에서는 뺀다. */
-      if (oid && !already) {
+      function sendPurchase(force) {
+        var ctx = orderCtx();
+        /* 주문번호가 없으면 «절대» 보내지 않는다 — 주문 없이 열리는 화면에서 허수가 찍히던
+           2026-09-06 사고의 방어선이다. 기다려도 안 나오면 그냥 안 보낸다. */
+        if (!ctx.oid) return false;
+        var op = ctx.op;
+        /* 아직 주문 내용이 안 채워졌으면 더 기다린다. 마감시한(force)에는 있는 것만으로 보낸다
+           — 건수·금액이라도 확보하는 쪽이 통째로 놓치는 것보다 낫다(2026-09-07 1차 수정 원칙). */
+        if (!(op && op.length) && !force) return false;
+
+        /* 중복 방지는 «실제로 보내는 시점»에만 기록한다 */
+        var sentList = [];
+        try { sentList = JSON.parse(localStorage.getItem(K_SENT) || '[]') || []; } catch (e) { sentList = []; }
+        if (sentList.indexOf(ctx.oid) > -1) return true;   /* 이미 보냈다 → 재시도 중단 */
+
         /* 🔴 옵션 문자열을 «순서»로 갖다 붙이면 옵션 없는 상품이 섞였을 때 한 칸씩 밀린다.
-           → 상품 목록과 개수가 «정확히» 같을 때만 쓰고, 아니면 비워 둔다(틀린 옵션보다 빈 값이 낫다).
-           넓은 `p.option` 폴백은 결제·배송 안내문까지 긁어와서 제거했다. */
+           → 상품 목록과 개수가 «정확히» 같을 때만 쓰고, 아니면 비워 둔다(틀린 옵션보다 빈 값이 낫다). */
         var optTexts = [];
         qa('li[title="옵션"] > p.option, li[title="オプション"] > p.option').forEach(function (pe) {
           var t = (pe.textContent || '').trim();
           if (/^\s*\[/.test(t)) optTexts.push(stripOpt(t));
         });
-        var rev = (op && op.length) ? op.slice().reverse() : [];    /* 목록이 없어도 진행한다 */
+        var rev = (op && op.length) ? op.slice().reverse() : [];
         var useOpt = (rev.length > 0 && optTexts.length === rev.length);
         var pi = [];
-        rev.forEach(function (p, idx) {
-          /* 옵션 추가금이 있으면 단가에 더해 장바구니·주문서 금액과 어긋나지 않게 한다 */
-          pi.push(item(p.product_no, p.product_name, p.category_no_3 || p.category_no_2,
-                       p.quantity, unitPrice(p), useOpt ? (optTexts[idx] || '') : ''));
+        rev.forEach(function (pp, idx) {
+          pi.push(item(pp.product_no, pp.product_name, pp.category_no_3 || pp.category_no_2,
+                       pp.quantity, unitPrice(pp), useOpt ? (optTexts[idx] || '') : ''));
         });
+
         /* 🔴 화면에서 긁은 첫 글자를 그대로 결제수단으로 쓰면 주문번호·주문일 같은 값이 들어간다.
            → 결제수단으로 «보이는 말»일 때만 채운다. */
         function payLabel(sv) {
@@ -572,15 +641,15 @@ var FJP_IS_PDP = (function () {
           return /銀行振込|クレジット|カード|コンビニ|Pay-?easy|ペイジー|後払い|代金引換|PayPal|Amazon\s*Pay|楽天/i.test(t)
                  ? t.slice(0, 40) : '';
         }
-        var pt = payLabel(E.payment_method || E.pay_method || '');
+        var pt = payLabel(ctx.E.payment_method || ctx.E.pay_method || '');
         if (!pt) {
           var cands = qa('.pannelArea .ec-base-table span, .pannelArea .ec-base-table td, [class*=paymethod] span');
           for (var pk = 0; pk < cands.length && !pt; pk++) pt = payLabel(cands[pk].textContent);
         }
+
         /* 금액 — ①주문상품 계산 ②화면의 「お支払総額/合計」 순서.
            🔴 둘 다 실패하면 value 를 «아예 빼고» 보낸다. 0 으로 보내면 «0원짜리 진짜 주문»으로
-              기록돼 매출·평균단가·광고 ROAS 를 조용히 갉아먹는다. 값이 없는 편이 낫다
-              (구매 건수는 남고, 금액은 나중에 카페24 주문원장으로 메울 수 있다). */
+              기록돼 매출·평균단가·광고 성과를 조용히 갉아먹는다. */
         var val = sum(pi);
         if (!val) {
           var bt = (document.body && document.body.innerText) || '';
@@ -590,15 +659,22 @@ var FJP_IS_PDP = (function () {
                 || bt.match(/[¥￥]\s*([0-9][0-9,]{2,})/);
           if (vm) val = parseFloat(vm[1].replace(/,/g, '')) || 0;
         }
-        var ec = { transaction_id: oid, currency: CUR, items: pi };
-        if (val) ec.value = val;                 /* 못 구하면 키 자체를 안 넣는다(0 금지) */
+        var ec = { transaction_id: ctx.oid, currency: CUR, items: pi };
+        if (val) ec.value = val;
         if (pt) ec.payment_type = pt;
         push('purchase2', ec, attr());
         try {
-          sentList.push(oid);
+          sentList.push(ctx.oid);
           localStorage.setItem(K_SENT, JSON.stringify(sentList.slice(-20)));
         } catch (e) {}
+        return true;
       }
+
+      whenReady(
+        function () { var c = orderCtx(); return !!(c.oid && c.op && c.op.length); },
+        sendPurchase,
+        { flushOnExit: true }        /* 고객이 일찍 떠나도 마지막에 한 번 — 중복은 주문번호로 막힌다 */
+      );
     }
 
     /* 담기/장바구니 ajax 훅 — XHR·fetch 각각 1회만 감싼다 */
