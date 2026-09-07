@@ -24,8 +24,16 @@
 /* 이 파일은 «일본몰 전용»이다. GTM 컨테이너·트리거로 이미 막혀 있지만, 사고로 다른 몰에
    실려도 아무 일이 없도록 도메인 가드를 하나 더 둔다(한국몰 회귀 0 보장의 마지막 겹). */
 var FJP_C24_OK = (function () {
-  try { return /(^|\.)fitablejp\.com$/.test(location.hostname) || /\/shop5\//.test(location.pathname); }
-  catch (e) { return false; }
+  try {
+    var h = (location.hostname || '').toLowerCase();
+    /* 🔴 예전엔 `호스트 || 경로` 라 «아무 호스트나 경로에 /shop5/ 만 있으면» 통과했다.
+       마지막 방어선인데 정작 호스트를 안 보는 셈이었다(2026-09-07 코드리뷰).
+       → 호스트를 필수로. 다만 카페24가 임시·미리보기 주소로 서비스하는 경우가 있어
+         «카페24 계열 호스트 + /shop5/ 경로»는 계속 허용한다(정상 동작을 깨지 않기 위함). */
+    if (/(^|\.)fitablejp\.com$/.test(h)) return true;
+    if (/(^|\.)cafe24(shop)?\.com$/.test(h) && /\/shop5\//.test(location.pathname)) return true;
+    return false;
+  } catch (e) { return false; }
 })();
 
 /* 🔴 «상품 상세»만 통과시키는 단일 판정. 예전엔 경로에 `/product/` 가 들어가기만 하면 통과라
@@ -37,6 +45,39 @@ var FJP_IS_PDP = (function () {
     if (/^\/board\//.test(p)) return false;
     return /^\/product\/(detail\.html|[^\/]+\/\d+(\/|$))/.test(p);
   } catch (e) { return false; }
+})();
+
+/* ══════════════ 개인정보 세정 (2026-09-07 신설) ══════════════
+   🔴 클릭 계측이 링크 주소와 버튼 글자를 «원문 그대로» GA4 로 보내고 있었다.
+      우리 재입고 알림 버튼이 `mailto:cs@…?subject=…` 라 이 경로가 이미 살아 있었다.
+      주소에 email=·tel=·주문번호가 붙어 있으면 그대로 구글로 나간다 — 정책 위반이라
+      속성 자체가 위험해진다.
+   🔑 «과하게» 지우지 않는다 — 어느 화면에서 눌렸는지(host+path)는 분석에 필요하므로 남긴다.
+      지우는 것은 «누구인지 알 수 있는 것»뿐: 쿼리·해시·이메일·전화·긴 숫자열. */
+var FJP_PII = (function () {
+  var EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
+  var PHONE = /(?:\+?\d[\d\-\s().]{7,}\d)/g;
+  var ORDER = /\d{8}-\d{7}/g;
+  var LONGNUM = /\d{7,}/g;
+  function text(t) {
+    try {
+      return String(t || '').replace(EMAIL, '(메일)').replace(ORDER, '(주문번호)')
+        .replace(PHONE, '(번호)').replace(LONGNUM, '(숫자)').replace(/\s+/g, ' ').trim().slice(0, 60);
+    } catch (e) { return ''; }
+  }
+  function url(h) {
+    try {
+      var v = String(h || '');
+      if (!v) return '';
+      if (/^mailto:/i.test(v)) return 'mailto:(가림)';     /* 주소·제목 전부 제거, «메일 링크였다»만 남긴다 */
+      if (/^tel:/i.test(v)) return 'tel:(가림)';
+      if (/^javascript:/i.test(v) || v === '#' || v === '#none') return v.slice(0, 20);
+      var u = new URL(v, location.href);
+      if (!/^https?:$/.test(u.protocol)) return u.protocol;
+      return (u.host + u.pathname).slice(0, 80);           /* 쿼리·해시 제거 */
+    } catch (e) { return ''; }
+  }
+  return { text: text, url: url };
 })();
 
 /* ══════════════ 모듈 0 — 유입 박제(퍼스트파티 어트리뷰션) ══════════════
@@ -173,6 +214,14 @@ var FJP_IS_PDP = (function () {
       } catch (e) {}
     }
     function attr() { try { return (window.__fjpAttr && window.__fjpAttr()) || {}; } catch (e) { return {}; } }
+    /* 🔑 «왜 0 인지» 알 수 있게 하는 진단 신호. 오늘 사고가 정확히 «흔적 없는 실패» 였다.
+       화면에는 분명 물건이 있는데 카페24 값이 안 잡힐 때만 보낸다(정상적으로 빈 화면은 안 보냄). */
+    function diag(what) {
+      try {
+        (window.dataLayer = window.dataLayer || []).push(
+          { event: 'jp01_pdp_diag', cta_kind: String(what).slice(0, 40) });
+      } catch (e) {}
+    }
 
     /* ══ 준비되면 «한 번만» 실행 (2026-09-07 신설) ══
        🔴 카페24의 주문·장바구니 값(aBasketProductData·order_product 등)은 «본문 인라인 스크립트»가
@@ -437,11 +486,26 @@ var FJP_IS_PDP = (function () {
       function snapshot() {
           var B = window.aBasketProductData || [];
           var snap = {};
-          rowKeys().forEach(function (k, idx) {
-            if (B[idx]) snap[k] = { p: B[idx].product_no, n: B[idx].product_name,
-                                    c: B[idx].main_cate_no, q: B[idx].quantity,
-                                    u: unitPrice(B[idx]),
-                                    v: stripOpt(B[idx].option_str && B[idx].option_str[0]) };
+          var chks = qa('[id^="' + pfx + '"]');
+          chks.forEach(function (c, idx) {
+            var k = c.id;
+            if (B[idx]) {
+              snap[k] = { p: B[idx].product_no, n: B[idx].product_name,
+                          c: B[idx].main_cate_no, q: B[idx].quantity,
+                          u: unitPrice(B[idx]),
+                          v: stripOpt(B[idx].option_str && B[idx].option_str[0]) };
+            } else {
+              /* 🔑 카페24 값이 아직 안 채워졌는데 삭제를 누른 경우 — 최소 정보라도 남긴다.
+                 금액은 모르므로 «넣지 않는다»(0 을 지어내지 않는다). */
+              var row = c.closest && c.closest('tr,li,div');
+              var nm = '';
+              try { var e2 = row && row.querySelector('.ec-product-name, p.product, .prdName');
+                    nm = e2 ? (e2.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : ''; } catch (e) {}
+              var qn = 1;
+              try { var qe = row && row.querySelector('input.quantity_opt, input[name*=quantity]');
+                    qn = qe ? (parseInt(String(qe.value).replace(/[^0-9]/g, ''), 10) || 1) : 1; } catch (e) {}
+              if (nm) snap[k] = { p: '', n: nm, c: '', q: qn, u: 0, v: '', partial: 1 };
+            }
           });
           return snap;
         }
@@ -453,7 +517,12 @@ var FJP_IS_PDP = (function () {
               rm.push(item(r.p, r.n, r.c, r.q, r.u, r.v));
             }
           }
-          if (rm.length) push('remove_from_cart2', { value: sum(rm), currency: CUR, items: rm }, attr());
+          if (rm.length) {
+            var ecr = { currency: CUR, items: rm };
+            var rv = sum(rm);
+            if (rv) ecr.value = rv;            /* 금액을 모르면 0 대신 «안 넣는다» */
+            push('remove_from_cart2', ecr, attr());
+          }
           return rm.length;
         }
 
@@ -515,6 +584,14 @@ var FJP_IS_PDP = (function () {
           liveSnap = snapshot();          /* 기준 스냅샷도 이때 다시 잡는다 */
           return true;
         }, { forceAtDeadline: false });
+
+      /* 화면에는 장바구니 줄이 있는데 카페24 값이 끝내 안 잡히면 «조용한 실패» — 진단을 남긴다 */
+      setTimeout(function () {
+        try {
+          var B = window.aBasketProductData;
+          if ((!B || !B.length) && rowKeys().length > 0) diag('basket_rows_but_no_data');
+        } catch (e) {}
+      }, 5000);
     }
 
     /* ── begin_checkout ────────────────────────────────────────── */
@@ -546,8 +623,14 @@ var FJP_IS_PDP = (function () {
           try { if (e.isTrusted && isPayEl(e.target)) payTouchAt = Date.now(); } catch (err) {}
         }, true);
       });
+      /* 🔴 주문서가 뜨자마자 결제수단만 고르고 결제해버리면, 그 시점엔 주문상품(bc)이 아직
+         안 채워져 있어 조용히 사라졌다(2026-09-07 코드리뷰). → 고른 값을 적어뒀다가
+         주문내용이 준비되는 시점에 «한 번» 다시 보낸다. */
+      var pendingPay = null;
       function firePayInfo(pt) {
-        if (apiFired || !bc.length) return; apiFired = 1;
+        if (apiFired) return;
+        if (!bc.length) { pendingPay = (pt || ''); return; }   /* 아직 이르다 → 적어두고 나중에 */
+        apiFired = 1;
         push('add_payment_info2', { value: sum(bc), currency: CUR, items: bc, payment_type: pt || '' }, attr());
       }
       document.addEventListener('change', function (e) {
@@ -582,8 +665,20 @@ var FJP_IS_PDP = (function () {
           }
           if (!bc.length) return false;
           push('begin_checkout2', { value: sum(bc), currency: CUR, items: bc }, attr());
+          if (pendingPay !== null && !apiFired) firePayInfo(pendingPay);   /* 미뤄둔 결제수단 선택 발사 */
           return true;
         }, { forceAtDeadline: false });
+
+      /* 주문서인데 주문상품을 끝내 못 읽었으면 «조용한 실패»다 — 결제수단 칸이 보이는데도
+         값이 비었을 때만 진단을 남긴다(정말 빈 주문서는 제외). */
+      setTimeout(function () {
+        try {
+          var O = window.aBasketProductOrderData;
+          if ((!O || !O.length) && document.querySelector('select[id*=paymethod], input[name*=paymethod]')) {
+            diag('orderform_no_data');
+          }
+        } catch (e) {}
+      }, 5000);
     }
 
     /* ── purchase ──────────────────────────────────────────────── */    if (isDone) {
@@ -776,8 +871,15 @@ var FJP_IS_PDP = (function () {
         var base = {};
         for (var i = 0; i < PARAM_KEYS.length; i++) base[PARAM_KEYS[i]] = undefined;
         base.product_no = PNO;                 /* 모든 이벤트에 상품번호 */
-        (window.dataLayer = window.dataLayer || []).push(
-          Object.assign(base, { event: PFX + '_pdp_' + suffix }, params || {}));
+        var out = Object.assign(base, { event: PFX + '_pdp_' + suffix }, params || {});
+        /* 🔑 개인정보 세정은 «여기 한 곳»에서만 한다 — 호출부마다 하면 언젠가 빠뜨린다 */
+        if (out.click_url) out.click_url = FJP_PII.url(out.click_url);
+        if (out.click_text) out.click_text = FJP_PII.text(out.click_text);
+        if (out.click_label) out.click_label = FJP_PII.text(out.click_label);
+        if (out.click_id) out.click_id = FJP_PII.text(out.click_id);
+        if (out.img_label) out.img_label = FJP_PII.text(out.img_label);
+        if (out.sec_label) out.sec_label = FJP_PII.text(out.sec_label);
+        (window.dataLayer = window.dataLayer || []).push(out);
       } catch (e) {}
     }
 
