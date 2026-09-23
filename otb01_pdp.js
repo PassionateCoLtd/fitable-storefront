@@ -47,6 +47,7 @@
       barSub: '12월 출시 · 10% 할인쿠폰',   // 가격은 싣지 않는다(대표 결정 2026-09-23)
       sessionKey: 'okb01_utm',
       showAfter: 0,
+      barAlways: true,         // 대표 지시 2026-09-23 「스티키 CTA 맨위 중간 아래 다」 — 하단 신청 버튼이 보여도 고정바를 숨기지 않는다
       hideGallery: false,      // 대표 지시: 썸네일(대표+추가 12장)을 보여준다 — OTB01 처럼 접지 않는다
       gifFix: {},
       /* PC 상단 정보 블록(2026-09-23 대표 지시 「상단에도 사전등록」·「컴팩트하게」).
@@ -326,7 +327,7 @@
         var doc = document.documentElement;
         var past = (window.pageYOffset || doc.scrollTop) >= (doc.scrollHeight - window.innerHeight) * CFG.showAfter;
         var atEnd = false;
-        if (bottom) { var r = bottom.getBoundingClientRect(); atEnd = r.top < window.innerHeight && r.bottom > 0; }
+        if (bottom && !CFG.barAlways) { var r = bottom.getBoundingClientRect(); atEnd = r.top < window.innerHeight && r.bottom > 0; }
         var on = past && !atEnd;
         b.style.display = on ? 'flex' : 'none';
         try { document.body.classList[on ? 'add' : 'remove']('otb01-bar-on'); } catch (e2) {}
