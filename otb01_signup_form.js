@@ -52,6 +52,14 @@
           sub2: '번호를 남기시면 짧은 설문으로 이어집니다.',
           consent: '[필수] 개인정보 수집·이용 동의 — 항목: 휴대폰 번호 / 목적: 출시 알림·10% 할인쿠폰 문자 발송, ' +
             '설문 응답 연결 / 보유기간: 출시 안내를 마칠 때까지(최대 6개월) / 동의하지 않으실 수 있으며, 이 경우 알림 신청이 되지 않습니다.',
+          /* 동의문을 줄 단위로 — 있으면 제목 + 「이름 | 내용」 표로 그린다(없는 상품은 consent 한 줄 그대로) */
+          consentTitle: '[필수] 개인정보 수집·이용 동의',
+          consentRows: [
+            ['항목', '휴대폰 번호'],
+            ['목적', '출시 알림·10% 할인쿠폰 문자, 설문 연결'],
+            ['보유기간', '출시 안내를 마칠 때까지(최대 6개월)']
+          ],
+          consentNote: '거부할 수 있으며, 거부 시 신청이 되지 않습니다.',
           submit: '사전알림 신청',
           step: '3단계 중 3단계',
           sTitle: '사전알림 신청이 끝났습니다',
@@ -307,7 +315,32 @@
       consentCheck.type = 'checkbox';
       consentCheck.style.cssText = 'margin-top:2px;flex:none;width:16px;height:16px;cursor:pointer;';
       var consentText = document.createElement('span');
-      consentText.textContent = T.consent;
+      if (T.consentRows) {
+        consentText.style.cssText = 'flex:1;min-width:0;';
+        var cTitle = document.createElement('span');
+        cTitle.style.cssText = 'display:block;color:#26221e;font-weight:600;font-size:13.5px;line-height:20px;';
+        cTitle.textContent = T.consentTitle;
+        consentText.appendChild(cTitle);
+        var cGrid = document.createElement('span');
+        cGrid.style.cssText = 'display:grid;grid-template-columns:auto 1fr;column-gap:12px;row-gap:2px;margin-top:6px;';
+        T.consentRows.forEach(function (r) {
+          var k = document.createElement('span');
+          k.style.cssText = 'color:#8a8f98;white-space:nowrap;';
+          k.textContent = r[0];
+          var v = document.createElement('span');
+          v.style.cssText = 'word-break:keep-all;';
+          v.textContent = r[1];
+          cGrid.appendChild(k); cGrid.appendChild(v);
+        });
+        consentText.appendChild(cGrid);
+        var cNote = document.createElement('span');
+        cNote.style.cssText = 'display:block;margin-top:6px;color:#8a8f98;word-break:keep-all;';
+        cNote.textContent = T.consentNote;
+        consentText.appendChild(cNote);
+        consentCheck.style.marginTop = '2px';
+      } else {
+        consentText.textContent = T.consent;
+      }
       consentLabel.appendChild(consentCheck);
       consentLabel.appendChild(consentText);
 
