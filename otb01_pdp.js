@@ -1,5 +1,5 @@
 /* otb01_pdp.js — 테이블바이크 오브제(OTB01) 사전예약 반응테스트 랜딩 보정.
- * 대상: 상품 176 한정(다른 상품에선 즉시 종료).
+ * 대상: PRODUCTS 에 적힌 상품만(176 테이블바이크 · 185 오브제 위스트벨). 다른 상품에선 즉시 종료.
  * 하는 일 4가지
  *   ① 구매 맥락 UI 가림 — 이 페이지는 판매가 아니라 «순번 신청»을 받는다.
  *      selling=F 라 서버가 구매/장바구니는 이미 displaynone 으로 내려보내고,
@@ -19,17 +19,34 @@
  * 롤백 = 이 ScriptTag DELETE 한 줄.
  */
 (function () {
-  var TARGETS = ['176'];
-  var CFG = {
-    form: 'https://docs.google.com/forms/d/e/1FAIpQLSc9UPRzbGt6gG8_wTQqXB75LZMai0jsncnYMw-wKjv13oUtJw/viewform',
-    codeEntry: 'entry.2069746961',
-    label: '사전예약 알림신청',
-    barTitle: '테이블 바이크 루프',
-    barSub: '499,000원 · 9월 14일 마감',   // 가격을 고정바에 올렸다(2026-09-04) — 신청자의 61%가 가격을 못 보고 눌렀고, 고정바가 클릭의 43%를 차지한다
-    sessionKey: 'otb01_utm',
-    showAfter: 0,            // 0 = 첫 화면부터 바로 노출(대표 지시 2026-09-02 — 한참 내려야 나오던 것)
-    gifFix: { '_1788345209.gif': '/web/upload/NNEditor/20260902/695b19f34ce4fe3a351a9a2bbc9fa6bc.gif',
-              '_1788345210.gif': '/web/upload/NNEditor/20260902/fd2623b4cff392b561e76d61080733f9.gif' }
+  /* 상품별 설정. 2026-09-23: OKB01 오브제 위스트벨(185) 사전알림 랜딩을 «새 스크립트태그 없이» 이 파일로 같이 받는다
+     (카페24 스킨·스크립트태그 신규 금지 — 개발사 요청 2026-09-11). 본문 래퍼 id(#otb01-d)·버튼 표식(data-otb-cta)은
+     두 상품 공용 계약이다. 설문 entry 는 폼을 다시 세울 때마다 바뀌어 OKB01 은 codeEntry 를 박지 않는다(null)
+     — 확인코드·번호 프리필은 신청 서버가 config 에서 읽어 돌려준다(otb01_signup_form.js). */
+  var PRODUCTS = {
+    '176': {
+      form: 'https://docs.google.com/forms/d/e/1FAIpQLSc9UPRzbGt6gG8_wTQqXB75LZMai0jsncnYMw-wKjv13oUtJw/viewform',
+      codeEntry: 'entry.2069746961',
+      label: '사전예약 알림신청',
+      barTitle: '테이블 바이크 루프',
+      barSub: '499,000원 · 9월 14일 마감',   // 가격을 고정바에 올렸다(2026-09-04) — 신청자의 61%가 가격을 못 보고 눌렀고, 고정바가 클릭의 43%를 차지한다
+      sessionKey: 'otb01_utm',
+      showAfter: 0,            // 0 = 첫 화면부터 바로 노출(대표 지시 2026-09-02 — 한참 내려야 나오던 것)
+      hideGallery: true,
+      gifFix: { '_1788345209.gif': '/web/upload/NNEditor/20260902/695b19f34ce4fe3a351a9a2bbc9fa6bc.gif',
+                '_1788345210.gif': '/web/upload/NNEditor/20260902/fd2623b4cff392b561e76d61080733f9.gif' }
+    },
+    '185': {
+      form: 'https://docs.google.com/forms/d/e/1FAIpQLSeBFESArpU4Bhd1E3B7rKedZX9UCj6KIBJ0qOCO-MKB_mA5zg/viewform',
+      codeEntry: null,
+      label: '사전알림 신청',
+      barTitle: '오브제 위스트벨',
+      barSub: '12월 출시 예정 · 신청 시 10% 할인쿠폰',   // 가격은 싣지 않는다(대표 결정 2026-09-23)
+      sessionKey: 'okb01_utm',
+      showAfter: 0,
+      hideGallery: false,      // 대표 지시: 썸네일(대표+추가 12장)을 보여준다 — OTB01 처럼 접지 않는다
+      gifFix: {}
+    }
   };
   var HIDE = [
     '.xans-product-detail .infoArea > .xans-product-action:not(.wish_btn)',
@@ -81,7 +98,8 @@
             location.pathname.match(/\/product\/[^\/]+\/(\d+)(?:\/|$)/);
     return m ? m[1] : '';
   }
-  if (TARGETS.indexOf(pno()) === -1) return;
+  var CFG = PRODUCTS[pno()];
+  if (!CFG) return;
   if (window.__otb01pdp) return; window.__otb01pdp = 1;
   /* 핵심 루틴이 죽으면 «조용히» 죽지 않게 — 광고 켜 놓고 구매버튼이 보이는 걸 모르면 안 된다 */
   function warn(where, e) { try { console.warn('[otb01_pdp] ' + where + ' 실패:', e && e.message ? e.message : e); } catch (x) {} }
@@ -91,7 +109,7 @@
     var st = document.createElement('style');
     st.id = 'otb01-hide';
     st.textContent = HIDE.join(',') + '{display:none!important;}' +
-      HIDE_GALLERY.join(',') + '{display:none!important;}' +
+      (CFG.hideGallery ? HIDE_GALLERY.join(',') + '{display:none!important;}' : '') +
       /* ④ 상세가 통째로 안 보이던 것 되살리기 — 스킨 «모바일» 스타일시트에
          `#prdDetail .cont > * {display:none}` 규칙이 있어서, 상세 HTML 을 <div id="otb01-pdp">
          하나로 감싼 우리 본문이 「.cont 의 직계 자식」으로 그대로 걸린다(모바일 detail2 에서만 발동).
@@ -259,6 +277,7 @@
       .join('-').replace(/[^A-Za-z0-9_.\-]/g, '_').slice(0, 90);
   }
   function link(loc) {
+    if (!CFG.codeEntry) return CFG.form;
     return CFG.form + '?usp=pp_url&' + CFG.codeEntry + '=' + encodeURIComponent(code(loc));
   }
 
@@ -305,7 +324,7 @@
       if (!a) return;
       var loc = a.getAttribute('data-otb-cta') || 'unknown';
       var cd = code(loc);
-      a.href = CFG.form + '?usp=pp_url&' + CFG.codeEntry + '=' + encodeURIComponent(cd);
+      a.href = link(loc);
       a.target = '_blank'; a.rel = 'noopener';
       /* 픽셀 Lead 는 여기서 쏘지 않는다 — 실제 «연락처 제출» 시점에만(otb01_signup_form.js).
          버튼만 눌러도 잡으면 광고 최적화가 «누르기만 하는 사람»을 학습한다. */

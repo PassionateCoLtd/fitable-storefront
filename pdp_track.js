@@ -15,7 +15,8 @@
     '68': 'stm01',                       // 스텝메이트(기본)
     '41': 'adb01',                       // 무게조절 덤벨
     '86': 'cd01',                        // 치닝디핑
-    '176': 'otb01'                       // 테이블바이크 오브제 반응테스트(무결제 순번 신청)
+    '176': 'otb01',                      // 테이블바이크 오브제 반응테스트(무결제 순번 신청)
+    '185': 'okb01'                       // 오브제 위스트벨 사전알림 신청 랜딩(2026-09-23, 구매 불가)
   };
   // 상품번호: 쿼리(?product_no=) 우선, 없으면 SEO 경로(/product/<슬러그>/<no>/)에서 추출
   var mm = location.search.match(/[?&]product_no=(\d+)/) ||
@@ -55,7 +56,8 @@
     }
     // 🔴 2026-08-11 스킨 개편 대응: 현행 버튼은 a.buy_btn / a.cart_btn (구 #actionBuy류 미존재 → 7/15부터 0건).
     //    구 셀렉터도 유지(다른 스킨 페이지 방어). 실클릭만(isTrusted) 집계.
-    if (PFX === 'otb01' && e.isTrusted) {
+    // 반응테스트 랜딩 공용(otb01·okb01): 버튼 위치(top/weight/bottom/sticky)별 클릭. 모달 여는 쪽은 signup_form 이 modal_open 으로 따로 센다.
+    if ((PFX === 'otb01' || PFX === 'okb01') && e.isTrusted) {
       var oc = t.closest('a[data-otb-cta]');
       if (oc) { ev('cta_' + (oc.getAttribute('data-otb-cta') || 'unknown')); return; }
     }

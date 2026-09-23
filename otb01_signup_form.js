@@ -13,7 +13,55 @@
 
   try {
     // ─── 대상 상품 가드 (pdp155_pricehide.js 패턴: 쿼리 + SEO 경로) ───
-    var TARGETS = ['176'];
+    /* 상품별 설정 — 2026-09-23 OKB01 오브제 위스트벨(185)을 «새 스크립트태그 없이» 같이 받는다.
+       OKB01 은 설문 entry 를 박지 않는다(null): 폼을 다시 세우면 entry 가 전부 바뀐다(실측 2026-09-22).
+       확인코드가 채워진 설문 주소와 번호 칸 이름(phone_entry)은 신청 서버가 요청마다 config 에서 읽어 돌려준다. */
+    var PRODUCTS = {
+      '176': {
+        EV: 'otb01',
+        ENDPOINT: 'https://fitable-dashboard.ngrok.app/api/otb01/signup',
+        VIEWFORM_URL: 'https://docs.google.com/forms/d/e/1FAIpQLSc9UPRzbGt6gG8_wTQqXB75LZMai0jsncnYMw-wKjv13oUtJw/viewform',
+        CONFIRM_ENTRY: 'entry.2069746961',
+        PHONE_ENTRY: 'entry.1277735863',   // 설문 「휴대폰 번호」 칸 — 신청에서 받은 값을 그대로 채운다
+        SESSION_KEY: 'otb01_utm',
+        T: {
+          title: '사전예약 알림신청',
+          sub1: '사전예약 오픈 시 가장 먼저 안내드립니다.',
+          sub2: '이어지는 1분 설문까지 마치시면 3만원 할인쿠폰을 드립니다.',
+          consent: '[필수] 개인정보 수집·이용 동의 — 목적: 사전예약 오픈 안내·할인쿠폰 지급·응답 분석, ' +
+            '보유기간: 수집일로부터 3개월',
+          submit: '사전예약 알림신청',
+          step: '2단계 중 2단계',
+          sTitle: '번호 확인했습니다\n마지막 1분 남았어요',
+          sCond: '3만원 할인쿠폰은\n설문을 마치신 분께 드립니다',
+          sBtn: '마지막 1분 · 3만원 쿠폰 받기',
+          sNote: '사전예약이 열릴 때 문자로 보내드립니다.\n가장 먼저 알려드리겠습니다.',
+          retry: '잠시 연결이 원활하지 않습니다. 「사전예약 알림신청」을 한 번 더 눌러 주세요.'
+        }
+      },
+      '185': {
+        EV: 'okb01',
+        ENDPOINT: 'https://fitable-dashboard.ngrok.app/api/okb01/signup',
+        VIEWFORM_URL: 'https://docs.google.com/forms/d/e/1FAIpQLSeBFESArpU4Bhd1E3B7rKedZX9UCj6KIBJ0qOCO-MKB_mA5zg/viewform',
+        CONFIRM_ENTRY: null,
+        PHONE_ENTRY: null,
+        SESSION_KEY: 'okb01_utm',
+        T: {
+          title: '사전알림 신청',
+          sub1: '출시되면 가장 먼저 문자로 알려드리고 10% 할인쿠폰을 드립니다.',
+          sub2: '번호를 남기시면 짧은 설문으로 이어집니다.',
+          consent: '[필수] 개인정보 수집·이용 동의 — 항목: 휴대폰 번호 / 목적: 출시 알림·10% 할인쿠폰 문자 발송, ' +
+            '설문 응답 연결 / 보유기간: 출시 안내를 마칠 때까지(최대 6개월) / 동의하지 않으실 수 있으며, 이 경우 알림 신청이 되지 않습니다.',
+          submit: '사전알림 신청',
+          step: '3단계 중 3단계',
+          sTitle: '번호 확인했습니다\n마지막 단계만 남았어요',
+          sCond: '10% 할인쿠폰은 출시 소식과 함께\n문자로 보내드립니다',
+          sBtn: '짧은 설문 하기',
+          sNote: '답해 주신 내용은\n출시 준비에만 씁니다.',
+          retry: '잠시 연결이 원활하지 않습니다. 「사전알림 신청」을 한 번 더 눌러 주세요.'
+        }
+      }
+    };
     function readCookie(k) {
     try {
       var m = document.cookie.match(new RegExp('(?:^|; )' + k + '=([^;]*)'));
@@ -26,19 +74,23 @@
                location.pathname.match(/\/product\/[^\/]+\/(\d+)(?:\/|$)/);
       return mm ? mm[1] : '';
     }
-    if (TARGETS.indexOf(pno()) === -1) return;
+    var P = PRODUCTS[pno()];
+    if (!P) return;
 
-    // ─── 설정 (config/otb01_test.json 값 그대로 박음 — 브라우저는 서버 config 못 읽음) ───
+    // ─── 설정 (config/otb01_test.json · okb01_test.json 값 — 브라우저는 서버 config 못 읽음) ───
     var CFG = {
-      ENDPOINT: 'https://fitable-dashboard.ngrok.app/api/otb01/signup',
-      VIEWFORM_URL: 'https://docs.google.com/forms/d/e/1FAIpQLSc9UPRzbGt6gG8_wTQqXB75LZMai0jsncnYMw-wKjv13oUtJw/viewform',
-      CONFIRM_ENTRY: 'entry.2069746961',
-      PHONE_ENTRY: 'entry.1277735863',   // 설문 「휴대폰 번호」 칸 — 신청에서 받은 값을 그대로 채운다
+      ENDPOINT: P.ENDPOINT,
+      VIEWFORM_URL: P.VIEWFORM_URL,
+      CONFIRM_ENTRY: P.CONFIRM_ENTRY,
+      PHONE_ENTRY: P.PHONE_ENTRY,
       DEFAULT_SOURCE: 'direct',
       DEFAULT_CONTENT: 'none',
-      SESSION_KEY: 'otb01_utm',
+      SESSION_KEY: P.SESSION_KEY,
       TIMEOUT_MS: 4000
     };
+    var T = P.T;
+    var EV = P.EV;
+    var serverPhoneEntry = null;   // OKB01: 신청 응답의 phone_entry(설문 번호 칸 이름)
 
     // ─── 유틸 ───
     function sanitizeCode(raw) {
@@ -51,9 +103,10 @@
     function buildSurveyUrl(code, phone) {
       var q = [];
       var c = sanitizeCode(code);
-      if (c) q.push(CFG.CONFIRM_ENTRY + '=' + encodeURIComponent(c));
+      if (c && CFG.CONFIRM_ENTRY) q.push(CFG.CONFIRM_ENTRY + '=' + encodeURIComponent(c));
       var p = String(phone || '').replace(/\D/g, '');
-      if (p.length >= 10 && p.length <= 11) q.push(CFG.PHONE_ENTRY + '=' + encodeURIComponent(p));
+      var pe = serverPhoneEntry || CFG.PHONE_ENTRY;
+      if (pe && p.length >= 10 && p.length <= 11) q.push(pe + '=' + encodeURIComponent(p));
       if (!q.length) return CFG.VIEWFORM_URL;
       return CFG.VIEWFORM_URL + '?usp=pp_url&' + q.join('&');
     }
@@ -61,10 +114,11 @@
     /* 서버가 준 설문 주소에 휴대폰 번호만 덧붙인다(확인 코드는 서버가 이미 붙여 준다). */
     function withPhone(url, phone) {
       var p = String(phone || '').replace(/\D/g, '');
-      if (!url || p.length < 10 || p.length > 11) return url;
-      if (url.indexOf(CFG.PHONE_ENTRY + '=') !== -1) return url;
+      var pe = serverPhoneEntry || CFG.PHONE_ENTRY;
+      if (!url || !pe || !/^entry\.\d+$/.test(pe) || p.length < 10 || p.length > 11) return url;
+      if (url.indexOf(pe + '=') !== -1) return url;
       return url + (url.indexOf('?') === -1 ? '?usp=pp_url&' : '&') +
-             CFG.PHONE_ENTRY + '=' + encodeURIComponent(p);
+             pe + '=' + encodeURIComponent(p);
     }
 
     // KST yymmddHHMM (기기 로컬 타임존과 무관하게 항상 한국시간 기준)
@@ -213,12 +267,12 @@
       formPanel.id = 'otb01-form-panel';
 
       var title = document.createElement('div');
-      title.textContent = '사전예약 알림신청';
+      title.textContent = T.title;
       title.style.cssText = 'font-size:18px;font-weight:700;color:#111114;margin:4px 0 6px;';
 
       // 번호만 받는 화면이라 «왜 주는지»가 없으면 이탈한다 — 한 줄로 약속을 적는다(대표 지시 2026-09-03).
       var titleSub = document.createElement('div');
-      titleSub.textContent = '사전예약 오픈 시 가장 먼저 안내드립니다.';
+      titleSub.textContent = T.sub1;
       titleSub.style.cssText = 'font-size:13px;color:#5b5f68;line-height:1.5;margin:0 0 2px;';
 
       /* 설문을 «신청 전»에 예고한다 (2026-09-03 실측 대응).
@@ -226,7 +280,7 @@
          여기서 설문 이야기를 한 글자도 안 해 놓고, 완료화면에서 갑자기 버튼을 내밀기 때문이다.
          미리 말해두면 설문은 «추가 요구»가 아니라 «예고된 과정»이 된다. */
       var titleSub2 = document.createElement('div');
-      titleSub2.textContent = '이어지는 1분 설문까지 마치시면 3만원 할인쿠폰을 드립니다.';
+      titleSub2.textContent = T.sub2;
       titleSub2.style.cssText = 'font-size:13px;font-weight:700;color:#111114;line-height:1.5;margin:0 0 14px;';
 
       var phoneInput = document.createElement('input');
@@ -253,8 +307,7 @@
       consentCheck.type = 'checkbox';
       consentCheck.style.cssText = 'margin-top:2px;flex:none;width:16px;height:16px;cursor:pointer;';
       var consentText = document.createElement('span');
-      consentText.textContent = '[필수] 개인정보 수집·이용 동의 — 목적: 사전예약 오픈 안내·할인쿠폰 지급·응답 분석, ' +
-        '보유기간: 수집일로부터 3개월';
+      consentText.textContent = T.consent;
       consentLabel.appendChild(consentCheck);
       consentLabel.appendChild(consentText);
 
@@ -265,7 +318,7 @@
       var submitBtn = document.createElement('button');
       submitBtn.id = 'otb01-submit';
       submitBtn.type = 'button';
-      submitBtn.textContent = '사전예약 알림신청';
+      submitBtn.textContent = T.submit;
       submitBtn.style.cssText = 'width:100%;padding:14px;font-size:15.5px;font-weight:700;color:#fff;' +
         'background:#0B0B0D;border:0;border-radius:10px;cursor:pointer;transition:opacity .15s;';
       // ⛔ 위임 리스너에 의존하지 말 것 — 아래 modal 의 stopPropagation 이 document 까지 못 가게 막는다.
@@ -307,18 +360,18 @@
       stepDots.appendChild(mkDot());
 
       var stepText = document.createElement('div');
-      stepText.textContent = '2단계 중 2단계';
+      stepText.textContent = T.step;
       stepText.style.cssText = 'font-size:11.5px;font-weight:700;color:#2563EB;text-align:center;margin:0 0 12px;';
 
       var successTitle = document.createElement('div');
-      successTitle.textContent = '번호 확인했습니다\n마지막 1분 남았어요';
+      successTitle.textContent = T.sTitle;
       successTitle.style.cssText = 'font-size:18px;font-weight:700;color:#111114;margin:0 0 10px;' +
         'text-align:center;line-height:1.45;white-space:pre-line;';
 
       /* 쿠폰 «조건»은 버튼 아래 회색 글씨가 아니라 버튼 «위»에 읽히는 크기로 둔다.
          옛 화면은 「설문을 마쳐야 쿠폰이 나간다」를 11.5px 회색으로 버튼 밑에 뒀다 — 아무도 안 읽는다. */
       var successCond = document.createElement('div');
-      successCond.textContent = '3만원 할인쿠폰은\n설문을 마치신 분께 드립니다';
+      successCond.textContent = T.sCond;
       successCond.style.cssText = 'font-size:13px;font-weight:700;color:#111114;text-align:center;' +
         'line-height:1.55;margin:0 0 12px;white-space:pre-line;';
 
@@ -327,14 +380,14 @@
          쿠폰이 «어떻게 생긴 물건인지»(시리얼 번호·등록 방법)는 지금 알 필요가 없다 —
          그건 쿠폰 문자를 보낼 때 그 문자 안에서 말한다(대표 지시 2026-09-03). */
       var successNote = document.createElement('div');
-      successNote.textContent = '사전예약이 열릴 때 문자로 보내드립니다.\n가장 먼저 알려드리겠습니다.';
+      successNote.textContent = T.sNote;
       successNote.style.cssText = 'font-size:11.5px;color:#9a9ea6;margin:14px 0 0;line-height:1.7;' +
         'text-align:center;white-space:pre-line;';
 
       var surveyBtn = document.createElement('button');
       surveyBtn.id = 'otb01-survey-btn';
       surveyBtn.type = 'button';
-      surveyBtn.textContent = '마지막 1분 · 3만원 쿠폰 받기';
+      surveyBtn.textContent = T.sBtn;
       surveyBtn.style.cssText = 'width:100%;padding:14px;font-size:15.5px;font-weight:700;color:#fff;' +
         'background:#2563EB;border:0;border-radius:10px;cursor:pointer;';
 
@@ -403,6 +456,9 @@
       e.modal.style.display = 'block';
       e.modal.setAttribute('data-cta-location', ctaLocation || '');
       scrollAtOpen = scrollPct();
+      /* 모달 열기 — 버튼 클릭(pdp_track.js 의 cta_<위치>)과 1:1 이지만, 스크립트 하나가 빠진 페이지에서
+         «버튼은 눌렸는데 모달이 안 떴다»를 가르려면 여는 쪽에서도 따로 센다. 이름이 달라 중복 집계 아님. */
+      fireGtag(EV + '_pdp_modal_open', { cta_location: ctaLocation || '' });
     }
 
     function hideModal() {
@@ -457,23 +513,26 @@
         e.submitBtn.style.opacity = '1';
 
         if (result.ok && result.data && result.data.ok) {
+          if (result.data.phone_entry && /^entry\.\d+$/.test(String(result.data.phone_entry))) {
+            serverPhoneEntry = String(result.data.phone_entry);
+          }
           var surveyUrl = withPhone(result.data.survey_url || buildSurveyUrl(code, rawPhone), rawPhone);
           /* ⛔ 「N번째로 신청되셨습니다」는 화면에 띄우지 않는다 —
              «순번 예약을 한 것»으로 오해한다(대표 지시 2026-09-03).
              서버 응답의 seq 는 그대로 받고 장부에도 남으니 집계는 영향 없다. */
           fireFbLead(ctaLocation, code);
-          fireGtag('otb01_pdp_signup_submit', {
+          fireGtag(EV + '_pdp_signup_submit', {
             utm_source: utm.source, utm_content: utm.content, cta_location: ctaLocation, code: code
           });
-          pushDL('otb01_pdp_signup_submit', {
+          pushDL(EV + '_pdp_signup_submit', {
             utm_source: utm.source, utm_content: utm.content, cta_location: ctaLocation, code: code,
             dup: false   /* 서버가 더는 알려주지 않는다(번호 조회 통로 차단) */
           });
           e.formPanel.style.display = 'none';
           e.successPanel.style.display = 'block';
           e.surveyBtn.onclick = function () {
-            fireGtag('otb01_pdp_survey_open', { cta_location: ctaLocation, code: code });
-            pushDL('otb01_pdp_survey_open', { cta_location: ctaLocation, code: code });
+            fireGtag(EV + '_pdp_survey_open', { cta_location: ctaLocation, code: code });
+            pushDL(EV + '_pdp_survey_open', { cta_location: ctaLocation, code: code });
             /* 인스타·페북 앱 안 브라우저는 새 창을 자주 막는다. 막히면 예외가 아니라
                null 이 돌아와 catch 에 안 걸리고 «눌러도 아무 일이 없는» 상태가 된다.
                설문 응답이 구조적으로 0 이 되므로 같은 창 이동으로 되받는다. (2026-09-02) */
@@ -484,11 +543,12 @@
         } else {
           var fallbackUrl = withPhone(
             (result.data && result.data.survey_url) || buildSurveyUrl(code, rawPhone), rawPhone);
-          pushDL('otb01_pdp_signup_fail', {
+          fireGtag(EV + '_pdp_signup_fail', { reason: result.reason || 'unknown', cta_location: ctaLocation });
+          pushDL(EV + '_pdp_signup_fail', {
             reason: result.reason || 'unknown', utm_source: utm.source,
             utm_content: utm.content, cta_location: ctaLocation, code: code
           });
-          showError('잠시 연결이 원활하지 않습니다. 「사전예약 알림신청」을 한 번 더 눌러 주세요.');
+          showError(T.retry);
           /* 보조 통로 — 서버가 오래 죽어 있어도 고객 손에 설문은 쥐여준다(전화번호는 설문에도 들어간다) */
           try {
             var alt = document.getElementById('otb01-alt-survey');
