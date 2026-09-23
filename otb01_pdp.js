@@ -25,6 +25,7 @@
      — 확인코드·번호 프리필은 신청 서버가 config 에서 읽어 돌려준다(otb01_signup_form.js). */
   var PRODUCTS = {
     '176': {
+      key: 'otb01',
       form: 'https://docs.google.com/forms/d/e/1FAIpQLSc9UPRzbGt6gG8_wTQqXB75LZMai0jsncnYMw-wKjv13oUtJw/viewform',
       codeEntry: 'entry.2069746961',
       label: '사전예약 알림신청',
@@ -37,11 +38,12 @@
                 '_1788345210.gif': '/web/upload/NNEditor/20260902/fd2623b4cff392b561e76d61080733f9.gif' }
     },
     '185': {
+      key: 'okb01',
       form: 'https://docs.google.com/forms/d/e/1FAIpQLSeBFESArpU4Bhd1E3B7rKedZX9UCj6KIBJ0qOCO-MKB_mA5zg/viewform',
       codeEntry: null,
       label: '사전알림 신청',
       barTitle: '오브제 위스트벨',
-      barSub: '12월 출시 예정 · 신청 시 10% 할인쿠폰',   // 가격은 싣지 않는다(대표 결정 2026-09-23)
+      barSub: '12월 출시 · 10% 할인쿠폰',   // 가격은 싣지 않는다(대표 결정 2026-09-23)
       sessionKey: 'okb01_utm',
       showAfter: 0,
       hideGallery: false,      // 대표 지시: 썸네일(대표+추가 12장)을 보여준다 — OTB01 처럼 접지 않는다
@@ -329,7 +331,7 @@
       /* 픽셀 Lead 는 여기서 쏘지 않는다 — 실제 «연락처 제출» 시점에만(otb01_signup_form.js).
          버튼만 눌러도 잡으면 광고 최적화가 «누르기만 하는 사람»을 학습한다. */
       /* GA4 버튼클릭은 pdp_track.js 가 같은 이름으로 이미 보낸다 — 여기서 또 보내면 두 번 세어진다 */
-      (window.dataLayer = window.dataLayer || []).push({ event: 'otb01_cta_click', cta_location: loc, otb01_code: cd });
+      (window.dataLayer = window.dataLayer || []).push({ event: CFG.key + '_cta_click', cta_location: loc, otb01_code: cd });
     } catch (err) {}
   }, true);
 

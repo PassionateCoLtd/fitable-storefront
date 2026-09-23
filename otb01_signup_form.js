@@ -467,7 +467,9 @@
       els.modal.style.display = 'none';
     }
 
+    var inFlight = false;   // 엔터 연타·버튼 연타로 같은 신청이 두 번 나가지 않게(코덱스 지적 2026-09-23)
     function submitSignup(ctaLocation) {
+      if (inFlight) return;
       var e = buildModal();
       var rawPhone = e.phoneInput.value.replace(/\D/g, '');
       if (rawPhone.length < 10 || rawPhone.length > 11) {
@@ -479,6 +481,7 @@
         return;
       }
       clearError();
+      inFlight = true;
       e.submitBtn.disabled = true;
       e.submitBtn.style.opacity = '.6';
 
@@ -509,13 +512,15 @@
         if (!(result.ok && result.data && result.data.ok) && attempt < 2) {
           setTimeout(send, 800); return;
         }
+        inFlight = false;
         e.submitBtn.disabled = false;
         e.submitBtn.style.opacity = '1';
 
+        /* 번호 칸 이름은 실패 응답에도 실려 온다 — 보조 설문 링크에도 번호가 채워지게 먼저 받아 둔다 */
+        if (result.data && result.data.phone_entry && /^entry\.\d+$/.test(String(result.data.phone_entry))) {
+          serverPhoneEntry = String(result.data.phone_entry);
+        }
         if (result.ok && result.data && result.data.ok) {
-          if (result.data.phone_entry && /^entry\.\d+$/.test(String(result.data.phone_entry))) {
-            serverPhoneEntry = String(result.data.phone_entry);
-          }
           var surveyUrl = withPhone(result.data.survey_url || buildSurveyUrl(code, rawPhone), rawPhone);
           /* ⛔ 「N번째로 신청되셨습니다」는 화면에 띄우지 않는다 —
              «순번 예약을 한 것»으로 오해한다(대표 지시 2026-09-03).
