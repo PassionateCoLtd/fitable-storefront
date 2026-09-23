@@ -14,6 +14,7 @@
  *      대표컷·썸네일 줄을 PC에서만 접어 제목 다음에 상세가 바로 오게 한다(모바일은 갤러리라 유지).
  *   ⑦ 스킨의 `#prdDetail .cont > *{display:none}` 때문에 모바일 detail2 에서 상세가
  *      통째로 안 보이던 것을 상품 176 한정으로 되살린다.
+ *   ⑧ PC 상단 정보 블록·신청 버튼 — 상품 설정에 pcTop 이 있는 상품만(185). 없는 상품은 즉시 반환.
  * 금지(스킨 충돌): 우리 요소 class/id 에 buy_btn·cart_btn·option·ec-base-layer 금지,
  *   DOM 노드 remove() 금지(스킨 타이머가 null 가드 없이 참조 → 오류 폭주). 숨김은 display:none 만.
  * 롤백 = 이 ScriptTag DELETE 한 줄.
@@ -47,7 +48,17 @@
       sessionKey: 'okb01_utm',
       showAfter: 0,
       hideGallery: false,      // 대표 지시: 썸네일(대표+추가 12장)을 보여준다 — OTB01 처럼 접지 않는다
-      gifFix: {}
+      gifFix: {},
+      /* PC 상단 정보 블록(2026-09-23 대표 지시 「상단에도 사전등록」·「컴팩트하게」).
+         PC 는 갤러리를 켜 둬서 오른쪽이 제목 세 줄 뒤로 텅 비고, 본문 첫 버튼은 1,900px 아래에 있었다.
+         오른쪽 칸(.infoArea)의 한 줄 설명 아래에 핵심 세 줄 · 강조 한 줄 · 신청 버튼을 넣는다.
+         버튼 위치 이름은 모바일 첫 화면 버튼과 같은 'top' (GA4 okb01_pdp_cta_top 로 같이 센다).
+         갤러리 크기·세로 중앙 정렬 CSS 는 상품 본문(description) 안에 있다 — 여기 없음.
+         이 키가 없는 상품(176)은 pcTop() 이 첫 줄에서 돌아간다. */
+      pcTop: {
+        lines: ['12 · 16 · 24 lbs 세 가지 무게', '도장 대신 PVC로 감싼 무광 오프화이트', '특허 등록 제10-2792646호'],
+        note: '12월 출시 예정 · 사전알림 신청 시 10% 할인쿠폰'
+      }
     }
   };
   var HIDE = [
@@ -143,7 +154,15 @@
       'padding:14px 26px;font-size:15px;font-weight:700;text-decoration:none;white-space:nowrap;}' +
       // 모바일 오른쪽 76px 는 비워둔다 — 채널톡 상담 버튼이 그 자리에 떠서 CTA 「…받기」를 가린다(2026-09-02 실측)
       '@media (max-width:520px){#otb01-bar{padding:10px 76px 10px 14px;padding-bottom:calc(10px + env(safe-area-inset-bottom));gap:10px;}' +
-      '#otb01-bar .otb01-l{font-size:11.5px;}#otb01-bar .otb01-b{padding:13px 18px;font-size:14px;}}';
+      '#otb01-bar .otb01-l{font-size:11.5px;}#otb01-bar .otb01-b{padding:13px 18px;font-size:14px;}}' +
+      (CFG.pcTop ?
+        '#okb01-pctop{margin:0;padding:20px 0 0;border-top:1px solid #E6E0D9;text-align:left;}' +
+        '#okb01-pctop .okb01-pt-l{margin:0 0 18px;font-size:13.5px;line-height:1.9;color:#6D615A;letter-spacing:-.01em;word-break:keep-all;}' +
+        '#okb01-pctop .okb01-pt-n{margin:0 0 16px;padding:11px 14px;background:#F4EFE8;border-radius:6px;' +
+        'font-size:14px;font-weight:600;line-height:1.5;color:#3A322B;word-break:keep-all;}' +
+        '#okb01-pctop .okb01-pt-b{display:block;box-sizing:border-box;width:100%;padding:17px 0;border-radius:6px;' +
+        'background:#262626;color:#fff!important;font-size:16px;font-weight:700;line-height:1.3;text-align:center;text-decoration:none!important;}' +
+        '#okb01-pctop .okb01-pt-b:hover{background:#000;}' : '');
     (document.head || document.documentElement).appendChild(st);
   } catch (e) { warn('가림 CSS 주입', e); }
 
@@ -358,7 +377,37 @@
     } catch (e) {}
   }
 
-  function boot() { bar(); gifFix(); label(); setTimeout(function () { gifFix(); label(); }, 1200); }
+  /* ⑧ PC 상단 정보 블록 + 신청 버튼 — CFG.pcTop 이 있는 상품만(현재 185).
+     모바일 호스트(m.)는 본문 첫 구간에 상단 버튼이 이미 있어 넣지 않는다(버튼 중복 금지).
+     PC/모바일은 «호스트»로 갈리는 사이트라 뷰포트가 아니라 호스트·PC 스킨 구조(.detailArea > .infoArea)로 가른다. */
+  function pcTop() {
+    try {
+      var t = CFG.pcTop;
+      if (!t || document.getElementById('okb01-pctop')) return;
+      if (/^m\./i.test(location.hostname)) return;
+      var ia = document.querySelector('.xans-product-detail > .detailArea > .infoArea');
+      if (!ia) return;
+      var w = document.createElement('div'); w.id = 'okb01-pctop';
+      var ls = document.createElement('div'); ls.className = 'okb01-pt-l';
+      for (var i = 0; i < t.lines.length; i++) {
+        var ln = document.createElement('div');
+        ln.appendChild(document.createTextNode(t.lines[i]));
+        ls.appendChild(ln);
+      }
+      var nt = document.createElement('div'); nt.className = 'okb01-pt-n';
+      nt.appendChild(document.createTextNode(t.note));
+      var a = document.createElement('a'); a.className = 'okb01-pt-b';
+      a.setAttribute('data-otb-cta', 'top');
+      a.href = CFG.form; a.target = '_blank'; a.rel = 'noopener';
+      a.appendChild(document.createTextNode(CFG.label));
+      w.appendChild(ls); w.appendChild(nt); w.appendChild(a);
+      var h4 = null;
+      for (var k = 0; k < ia.children.length; k++) { if (ia.children[k].tagName === 'H4') { h4 = ia.children[k]; break; } }
+      if (h4) ia.insertBefore(w, h4.nextSibling); else ia.appendChild(w);
+    } catch (e) { warn('pcTop', e); }
+  }
+
+  function boot() { bar(); pcTop(); gifFix(); label(); setTimeout(function () { pcTop(); gifFix(); label(); }, 1200); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();
