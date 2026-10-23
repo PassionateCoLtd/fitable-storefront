@@ -244,7 +244,7 @@
       } catch (e) {}
     }
 
-    /* ── 3. 결제 인텐트 포착 (네이버페이 iframe → wrapper capture-phase) ── */
+    /* ── 3. 결제 인텐트 포착 (실제 구매 버튼의 활성화만 기록) ── */
     var lastFire = 0;
     function payIntent(kind) {
       var t = Date.now();
@@ -266,16 +266,25 @@
         beaconPost(DASH + '/api/preorder/checkout_intent', cp);
       } catch (e) { /* 확장 격리 */ }
     }
+    // NPay의 .npay_btn_item은 구매·찜 양쪽 셀에 붙는다. wrapper의 누름/터치가
+    // 아니라 구매 앵커의 click만 포착한다(키보드 포함, 스크롤 터치·찜 제외).
+    // document 위임으로 4초 이후 비동기 생성/교체된 버튼도 놓치지 않는다.
+    function npayClick(event) {
+      try {
+        var el = event.target;
+        while (el && el !== document) {
+          if (el.nodeType === 1 && el.tagName === 'A' &&
+              (' ' + el.className + ' ').indexOf(' npay_btn_pay ') > -1) {
+            payIntent('npay');
+            return;
+          }
+          el = el.parentNode;
+        }
+      } catch (e) {}
+    }
     function bindPay() {
       try {
         var i, els;
-        els = document.querySelectorAll('.npay_btn_item, #NPAY_BUTTON_BOX');
-        for (i = 0; i < els.length; i++) {
-          if (els[i].__fitAttr) continue;
-          els[i].__fitAttr = 1;
-          els[i].addEventListener('mousedown', function () { payIntent('npay'); }, true);
-          els[i].addEventListener('touchstart', function () { payIntent('npay'); }, true);
-        }
         els = document.querySelectorAll('.__checkout_btn_comm, a[href*="paymethod=kakaopay"]');
         for (i = 0; i < els.length; i++) {
           if (els[i].__fitAttr) continue;
@@ -318,8 +327,9 @@
       } catch (e) {}
     }
 
-    /* ── 부트스트랩: 네이버페이 버튼은 비동기 렌더 → 재바인딩 ── */
+    /* ── 부트스트랩: NPay는 위임, KakaoPay는 비동기 렌더 재바인딩 ── */
     function boot() {
+      document.addEventListener('click', npayClick, true);
       bindPay();
       setTimeout(bindPay, 1500);
       setTimeout(bindPay, 4000);
