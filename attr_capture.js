@@ -126,6 +126,30 @@
      * 쿠키 포맷 2종 대응: _ga=GA1.1.<cid>  / _ga_<STREAM>=GS1.1.<sid>.. 또는 GS2.1.s<sid>$..
      *   (2025년 GS2 포맷 전환 이력 — 한쪽만 파싱하면 조용히 전멸하므로 둘 다 시도)
      * 실패해도 빈 문자열 → 백필이 기존 합성 cid로 폴백(무해). 화면·발화 영향 0. */
+    var gaIdCache = null, gaIdRequest = 0;
+    // 쿠키에 client_id가 없지만 GA에는 남는 경우를 공식 get API로 보완한다.
+    // 현재 쿠키의 session_id와 일치하는 60초 이내 응답만 사용한다.
+    function warmGaIds() {
+      try {
+        if (typeof window.gtag !== 'function') return;
+        var started = Date.now();
+        if (gaIdRequest && started - gaIdRequest < 1000) return;
+        gaIdRequest = started;
+        var cid = '', sid = '';
+        function keep() {
+          if (/^\d+\.\d+$/.test(cid) && /^\d{9,20}$/.test(sid) &&
+              Date.now() - started <= 2000) {
+            gaIdCache = { cid: cid, sid: sid, at: started };
+          }
+        }
+        window.gtag('get', 'G-' + GA4_STREAM, 'client_id', function (v) {
+          cid = typeof v === 'string' ? v : ''; keep();
+        });
+        window.gtag('get', 'G-' + GA4_STREAM, 'session_id', function (v) {
+          sid = v == null ? '' : String(v); keep();
+        });
+      } catch (e) {}
+    }
     var GA4_STREAM = 'V7D156FCFX';   // 측정ID G-V7D156FCFX 의 스트림 접미사
     function gaIds() {
       var out = { cid: '', sid: '' };
@@ -135,6 +159,10 @@
         var s = getCookie('_ga_' + GA4_STREAM) || '';
         var ms = s.match(/GS2\.\d\.s(\d{9,})/) || s.match(/GS1\.\d\.(\d{9,})/);
         if (ms) out.sid = ms[1];
+        if (!out.cid && out.sid && gaIdCache && gaIdCache.sid === out.sid &&
+            Date.now() - gaIdCache.at >= 0 && Date.now() - gaIdCache.at <= 60000) {
+          out.cid = gaIdCache.cid;
+        }
       } catch (e) {}
       return out;
     }
@@ -275,7 +303,8 @@
         while (el && el !== document) {
           if (el.nodeType === 1 && el.tagName === 'A' &&
               (' ' + el.className + ' ').indexOf(' npay_btn_pay ') > -1) {
-            payIntent('npay');
+            if (event.type === 'mousedown' || event.type === 'touchstart') warmGaIds();
+            else payIntent('npay');
             return;
           }
           el = el.parentNode;
@@ -330,6 +359,11 @@
     /* ── 부트스트랩: NPay는 위임, KakaoPay는 비동기 렌더 재바인딩 ── */
     function boot() {
       document.addEventListener('click', npayClick, true);
+      document.addEventListener('mousedown', npayClick, true);
+      document.addEventListener('touchstart', npayClick, true);
+      warmGaIds();
+      setTimeout(warmGaIds, 1500);
+      setTimeout(warmGaIds, 4000);
       bindPay();
       setTimeout(bindPay, 1500);
       setTimeout(bindPay, 4000);
