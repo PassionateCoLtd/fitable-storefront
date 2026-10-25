@@ -94,6 +94,23 @@ var FJP_PII = (function () {
   return { text: text, url: url };
 })();
 
+/* 앱 안 브라우저 판정(2026-10-25) — 사용자 에이전트 글자만 본다. 낮은 종류 수의 이름만 돌려준다.
+   ⚠️ Electron 같은 넓은 말은 쓰지 않는다(LINE·Slack PC 앱이 Electron — 9/6 함정 6b 와 같은 이유). */
+function FJP_INAPP() {
+  try {
+    var ua = String(navigator.userAgent || '');
+    if (/ Line\/\d/.test(ua)) return 'line';
+    if (/Instagram/.test(ua)) return 'instagram';
+    if (/FBAN|FBAV|FB_IAB|FBIOS/.test(ua)) return 'facebook';
+    if (/musical_ly|BytedanceWebview|TikTok/i.test(ua)) return 'tiktok';
+    if (/YJApp-(IOS|ANDROID)/i.test(ua)) return 'yahoo';
+    if (/KAKAOTALK/i.test(ua)) return 'kakaotalk';
+    if (/TwitterAndroid|Twitter for/i.test(ua)) return 'twitter';
+    if (/ GSA\/\d/.test(ua)) return 'google';
+    return '';
+  } catch (e) { return ''; }
+}
+
 /* ══════════════ 모듈 0 — 유입 박제(퍼스트파티 어트리뷰션) ══════════════
    한국몰 attr_capture.js 의 «유입 박제» 부분만 이식한다.
    최초유입(ft_*)과 최종유입(lt_*)을 브라우저에 저장해 두었다가 결제시작·주문완료 이벤트에
@@ -126,18 +143,66 @@ var FJP_PII = (function () {
         return { source: h.slice(0, 60), medium: 'referral' };
       } catch (e) { return null; }
     }
+    /* ── 2026-10-25 강화 ──
+       ① 클릭ID 를 더 알아본다: gclid 외에 gbraid·wbraid(구글 iOS)·yclid(야후 재팬)·ldtag_cl(LINE 광고)
+          ·ttclid(틱톡)·msclkid(빙)·twclid(X). 값 자체는 저장·전송하지 않고 «어떤 클릭ID였나»(종류)만 남긴다.
+          ⚠️ 카페24는 /product/detail.html?product_no=N 을 SEO 주소로 301 보내며 utm_* 만 남기고
+             클릭ID 를 전부 버린다(10/25 curl 실측). 그 경우 이 파일은 클릭ID 를 볼 수 없다 → 광고 도착
+             주소를 SEO 주소로 바꾸거나 utm 을 붙이는 쪽이 정답(광고 쪽 제안서 참조).
+       ② utm_term·도착 화면(landing — 쿼리 없는 화면 종류만) 저장.
+       ③ 리퍼러도 utm 도 클릭ID 도 없는데 «앱 안 브라우저»(LINE·인스타 등)면 (direct) 대신
+          <앱>/inapp 으로 적는다. LINE 대화방 링크는 리퍼러가 비어 (direct) 로 둔갑하던 몫이다.
+       ④ 최종유입 유효기간 30일 → 90일(최초유입과 같게, GA4 마지막 비직접 클릭 창과 같게).
+       ⛔ 고객정보(이름·연락처·메일·주소)는 어떤 칸에도 넣지 않는다 — 검색어는 메일·전화 모양을 지운다. */
+    var CLICK_IDS = [            /* 순서 = 우선순위. fbclid → gclid 순서는 예전 동작 그대로 */
+      ['fbclid', 'facebook', 'cpc'], ['gclid', 'google', 'cpc'], ['gbraid', 'google', 'cpc'],
+      ['wbraid', 'google', 'cpc'], ['yclid', 'yahoo', 'cpc'], ['ldtag_cl', 'line', 'cpc'],
+      ['ttclid', 'tiktok', 'cpc'], ['msclkid', 'bing', 'cpc'], ['twclid', 'twitter', 'cpc']
+    ];
+    function clickId(q) {
+      for (var i = 0; i < CLICK_IDS.length; i++) if (q.get(CLICK_IDS[i][0])) return CLICK_IDS[i];
+      return null;
+    }
+    function landingKey() {
+      try {
+        var p = location.pathname || '/';
+        if (p === '/' || /^\/index\.html$/.test(p)) return 'home';
+        var pm = location.search.match(/[?&]product_no=(\d+)/) || p.match(/^\/product\/[^\/]+\/(\d+)(?:\/|$)/);
+        if (pm && /^\/product\//.test(p) && !/^\/product\/(list\d*|search)\.html/.test(p)) return 'product/' + pm[1];
+        var cm = location.search.match(/[?&]cate_no=(\d+)/);
+        if (/^\/product\/list\d*\.html$/.test(p)) return 'list/' + (cm ? cm[1] : '');
+        var cp = p.match(/^\/category\/[^\/]+\/(\d+)(?:\/|$)/);        /* 일본몰 분류 주소 /category/<이름>/<번호>/ */
+        if (cp) return 'list/' + cp[1];
+        var d = p; try { d = decodeURIComponent(p); } catch (e) {}
+        return FJP_PII.text(d.slice(0, 80));         /* 쿼리·해시는 버리고, 경로도 메일·전화 모양은 지운다 */
+      } catch (e) { return ''; }
+    }
+    /* 캠페인·소재 칸은 광고 ID(긴 숫자)가 정상값이라 숫자는 두고 «메일 주소 모양»만 지운다 */
+    function noMail(v) {
+      try { return String(v || '').replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '(메일)'); } catch (e) { return ''; }
+    }
+    function cleanTerm(t) {
+      try { return FJP_PII.text(t); } catch (e) { return ''; }
+    }
+    var CUR_LANDING = landingKey();
     function current() {
       var q = new URLSearchParams(location.search);
       var s = q.get('utm_source'), m = q.get('utm_medium'), c = q.get('utm_campaign'), ct = q.get('utm_content');
-      if (s) return { source: s.slice(0,80), medium: (m||'').slice(0,80), campaign: (c||'').slice(0,120), content: (ct||'').slice(0,120) };
-      if (q.get('fbclid')) return { source: 'facebook', medium: 'cpc', campaign: '', content: '' };
-      if (q.get('gclid')) return { source: 'google', medium: 'cpc', campaign: '', content: '' };
+      var ck = clickId(q), tm = cleanTerm(q.get('utm_term') || '');
+      var extra = { term: tm, click: ck ? ck[0] : '', landing: CUR_LANDING };
+      if (s) return Object.assign({ source: noMail(s).slice(0,80), medium: noMail(m).slice(0,80), campaign: noMail(c).slice(0,120), content: noMail(ct).slice(0,120) }, extra);
+      if (ck) return Object.assign({ source: ck[1], medium: ck[2], campaign: '', content: '' }, extra);
       var r = refClass();
-      return r ? { source: r.source, medium: r.medium, campaign: '', content: '' } : null;
+      if (r && r.source === '(direct)') {
+        var app = FJP_INAPP();
+        if (app) return Object.assign({ source: app, medium: 'inapp', campaign: '', content: '', weak: 1 }, extra);
+      }
+      return r ? Object.assign({ source: r.source, medium: r.medium, campaign: '', content: '' }, extra) : null;
     }
-    /* 유효기간 — 한국몰 attr_capture.js 관례 그대로: 최종유입 30일 · 최초유입 90일.
+    /* 유효기간 — 최초유입 90일 · 최종유입 90일(2026-10-25 30일→90일, 대표 지시).
        없으면 «3개월 전 광고»가 영원히 마지막 유입 자리를 차지한다. */
-    var TTL_LT = 30 * 24 * 3600 * 1000, TTL_FT = 90 * 24 * 3600 * 1000, NOW = Date.now();
+    var TTL_LT = 90 * 24 * 3600 * 1000, TTL_FT = 90 * 24 * 3600 * 1000, NOW = Date.now();
+    var FIELDS = ['source', 'medium', 'campaign', 'content', 'term', 'click', 'landing'];
     /* 기한 지난 유입을 «지우는» 함수 — 저장할 때와 읽을 때 «같은 규칙»을 쓴다.
        (한쪽에만 두면 기한이 지난 값이 저장소에 남아 그대로 실려 나간다) */
     function prune(v, t) {
@@ -145,10 +210,10 @@ var FJP_PII = (function () {
       if (v.lt_source && !v.lt_ts) v.lt_ts = t;        /* 옛 기록엔 시각이 없다 → 지금부터 나이를 센다 */
       if (v.ft_source && !v.ft_ts) v.ft_ts = t;
       if (v.lt_ts && t - v.lt_ts > TTL_LT) {
-        delete v.lt_source; delete v.lt_medium; delete v.lt_campaign; delete v.lt_content; delete v.lt_ts;
+        FIELDS.forEach(function (f) { delete v['lt_' + f]; }); delete v.lt_ts;
       }
       if (v.ft_ts && t - v.ft_ts > TTL_FT) {
-        delete v.ft_source; delete v.ft_medium; delete v.ft_campaign; delete v.ft_content; delete v.ft_ts;
+        FIELDS.forEach(function (f) { delete v['ft_' + f]; }); delete v.ft_ts;
       }
       return v;
     }
@@ -162,15 +227,22 @@ var FJP_PII = (function () {
        그때 (direct) 로 덮으면 «광고로 들어온 사람»이 결제 시점에 직접유입으로 둔갑한다(9/6 실측).
        → «유효기간 안의» 저장값이 있을 때만 덮어쓰기를 막는다(기한이 지나면 정상적으로 갱신). */
     if (now && now.source === '(direct)' && store.lt_source) now = null;
+    /* 앱 안 브라우저 추정(<앱>/inapp)은 «약한 신호»다 — 정보가 있는 저장값은 절대 덮지 않는다.
+       🔴 인스타 인앱의 판정 이름(instagram)과 메타 광고 저장값(meta·ig)은 이름이 달라서, «같은 출처면 보존»
+          식으로 짜면 결제 도중 리퍼러 빈 화면에서 메타 귀속이 지워진다(10/25 리뷰에서 재현). 인앱 저장소는
+          앱마다 따로라 다른 출처를 바꿔야 할 일이 거의 없다. 저장값이 (direct) 뿐이면 정보가 없으므로 바꾼다. */
+    if (now && now.weak && store.lt_source && store.lt_source !== '(direct)') now = null;
     if (now) {
+      /* 모든 칸을 함께 쓴다 — 새 접점에 검색어가 없으면 옛 접점의 검색어가 남아 섞이지 않게 '' 로 덮는다 */
       if (!store.ft_source) {
-        store.ft_source = now.source; store.ft_medium = now.medium;
-        store.ft_campaign = now.campaign; store.ft_content = now.content; store.ft_ts = NOW;
+        FIELDS.forEach(function (f) { store['ft_' + f] = now[f] || ''; }); store.ft_ts = NOW;
       }
-      store.lt_source = now.source; store.lt_medium = now.medium;
-      store.lt_campaign = now.campaign; store.lt_content = now.content; store.lt_ts = NOW;
+      FIELDS.forEach(function (f) { store['lt_' + f] = now[f] || ''; }); store.lt_ts = NOW;
       try { LS.setItem(K, JSON.stringify(store)); } catch (e) {}
     }
+    var OUT_KEYS = [];
+    ['ft_', 'lt_'].forEach(function (p) { FIELDS.forEach(function (f) { OUT_KEYS.push(p + f); }); });
+    var UA_APP = FJP_INAPP();          /* 지금 화면이 어느 앱 안 브라우저인지(저장 안 함, 화면마다 다시 판정) */
     /* ══ 유입정보·회원여부를 «페이지당 한 번» dataLayer 에 깔아 둔다 (2026-09-07 신설) ══
        🔑 GTM 의 데이터영역은 «한 번 넣은 값이 그 페이지 내내 유지»된다. 그래서 여기서 한 번만
           깔아두면 그 뒤에 발생하는 모든 이벤트(스크롤·클릭·상품조회·가입…)의 태그가
@@ -180,20 +252,20 @@ var FJP_PII = (function () {
       var seed = { member: FJP_MEMBER() };
       var a0 = {};
       try { a0 = JSON.parse(LS.getItem(K) || '{}') || {}; } catch (e) {}
-      ['ft_source','ft_medium','ft_campaign','ft_content',
-       'lt_source','lt_medium','lt_campaign','lt_content'].forEach(function (k2) {
+      OUT_KEYS.forEach(function (k2) {
         if (a0[k2]) seed[k2] = a0[k2];
       });
+      if (UA_APP) seed.ua_app = UA_APP;
       (window.dataLayer = window.dataLayer || []).push(seed);
     } catch (e) {}
 
     window.__fjpAttr = function () {
       try {
         var v = prune(JSON.parse(LS.getItem(K) || '{}') || {}, Date.now()), out = {};
-        ['ft_source','ft_medium','ft_campaign','ft_content',
-         'lt_source','lt_medium','lt_campaign','lt_content'].forEach(function (k) {
+        OUT_KEYS.forEach(function (k) {
           if (v[k]) out[k] = v[k];       /* 시각 같은 내부 필드는 GA4 로 안 내보낸다 */
         });
+        if (UA_APP) out.ua_app = UA_APP;
         return out;
       } catch (e) { return {}; }
     };
@@ -349,6 +421,65 @@ var FJP_PII = (function () {
     var isCart  = /\/order\/basket/.test(path);
     var isForm  = /\/order\/orderform/.test(path);
     var isDone  = /\/order\/order_result/.test(path);
+
+    /* ── view_item_list / select_item (2026-10-25 신설) ──────────────
+       홈·분류·검색 화면에 보이는 상품 링크를 «목록»으로 본다. 화면당 view_item_list 1회,
+       같은 상품 select_item 은 화면당 1회. 상세·장바구니·주문·회원·게시판 화면은 제외
+       (상세는 view_item 이 따로 있고, 게시판 링크는 상품 «선택»이 아니다).
+       값(가격)은 넣지 않는다 — 목록 금액은 화면마다 표기가 달라 틀린 금액보다 빈 값이 낫다.
+       상품명(item_name)도 넣지 않는다(1회차 리뷰) — 목록 링크 글자는 분류·문구·가격이 섞여 view_item 의
+       상품명과 달라져 GA4 상품 보고가 갈라지고, 화면 글자를 긁는 것 자체가 개인정보 위험이다. item_id 만으로 충분. */
+    var isListish = !FJP_IS_PDP && !isCart && !isForm && !isDone &&
+                    !/^\/(order|member|myshop|board|article|exec|api)\//.test(path);
+    if (isListish) {
+      var LN = (function () {
+        if (path === '/' || /^\/index\.html$/.test(path)) return 'home';
+        var cm = location.search.match(/[?&]cate_no=(\d+)/);
+        if (/^\/product\/list\d*\.html$/.test(path)) return 'category_' + (cm ? cm[1] : '');
+        var cp = path.match(/^\/category\/[^\/]+\/(\d+)(?:\/|$)/);   /* 일본몰 메뉴의 분류 주소(1회차 리뷰) */
+        if (cp) return 'category_' + cp[1];
+        if (/^\/product\/search\.html$/.test(path)) return 'search';
+        return 'other';
+      })();
+      var pnoOf = function (a) {
+        var h = (a && a.getAttribute && a.getAttribute('href')) || '';
+        /* 상품 상세 주소 두 모양만 상품으로 본다 — 게시판 글(/board/product/read.html?…product_no=) 은 제외 */
+        var m = h.match(/^(?:https?:\/\/[^\/]+)?\/product\/detail\.html\?(?:[^#]*&)?product_no=(\d+)/) ||
+                h.match(/^(?:https?:\/\/[^\/]+)?\/product\/(?!list\d*\.html|search\.html|detail\.html)[^\/?#]+\/(\d+)(?:[\/?#]|$)/);
+        return m ? m[1] : null;
+      };
+      var listItems = function () {
+        var seen = {}, out = [];
+        qa('a[href]').forEach(function (a) {
+          var no = pnoOf(a); if (!no || seen[no] || out.length >= 20) return;
+          seen[no] = 1;
+          out.push({ item_id: no, index: out.length, item_list_id: LN, item_list_name: LN });
+        });
+        return out;
+      };
+      var listIdx = {};
+      whenReady(
+        function () { return listItems().length > 0; },
+        function () {
+          var its = listItems(); if (!its.length) return false;
+          its.forEach(function (it) { listIdx[it.item_id] = it; });
+          push('view_item_list2', { item_list_id: LN, item_list_name: LN, items: its }, attr());
+          return true;
+        }, { forceAtDeadline: false });
+      var selSent = {};
+      document.addEventListener('click', function (e) {
+        try {
+          if (!e.isTrusted) return;
+          if (e.button !== undefined && e.button !== 0) return;
+          var a = e.target && e.target.closest && e.target.closest('a[href]'); if (!a) return;
+          var no = pnoOf(a); if (!no || selSent[no]) return;
+          selSent[no] = 1;
+          var it = { item_id: no, item_list_id: LN, item_list_name: LN };
+          if (listIdx[no]) it.index = listIdx[no].index;
+          push('select_item2', { item_list_id: LN, item_list_name: LN, items: [it] }, attr());
+        } catch (err) {}
+      }, true);
+    }
 
     /* ── view_item ─────────────────────────────────────────────── */
     if (isPdp) {
@@ -673,6 +804,36 @@ var FJP_PII = (function () {
         } catch (err) {}
       }, true);
 
+      /* add_shipping_info — 배송지 칸을 사람이 처음 건드린 순간, 또는 그런 일 없이(저장된 주소 회원)
+         결제 버튼을 누른 순간. 주문서 1회. (2026-10-25 신설)
+         ⛔ 칸의 «값»은 절대 읽지 않는다 — 이름·주소·전화는 이벤트에 안 들어간다(어느 칸을 건드렸는지도 안 보냄).
+         배송지 칸 이름은 카페24 일본몰 주문서 기준: fname·fzipcode·faddress·fphone·f_country·fsameaddr 등
+         (국내형 rname·rzipcode·raddr·rphone 도 같이 받는다). */
+      var shipFired = 0, pendingShip = false;
+      var SHIP_RX = /^(fname2?|fzipcode|faddress2?|fphone|f_country|fsameaddr|no_fzipcode|ju_do|si_gun_dosi|rname|rzipcode|raddr|rphone|sameaddr)/i;
+      function fireShipInfo() {
+        if (shipFired) return;
+        if (!bc.length) { pendingShip = true; return; }       /* 주문상품이 아직이면 적어두고 나중에 */
+        shipFired = 1;
+        push('add_shipping_info2', { value: sum(bc), currency: CUR, items: bc }, attr());
+      }
+      ['change', 'input'].forEach(function (tp) {
+        document.addEventListener(tp, function (e) {
+          try {
+            if (!e.isTrusted || shipFired) return;
+            var t = e.target; if (!t) return;
+            if (SHIP_RX.test(String(t.name || '')) || SHIP_RX.test(String(t.id || ''))) fireShipInfo();
+          } catch (err) {}
+        }, true);
+      });
+      document.addEventListener('click', function (e) {
+        try {
+          if (!e.isTrusted || shipFired) return;
+          var b = e.target && e.target.closest && e.target.closest('.btnSubmit, .ftbl-paybtn, [id^="btn_payment"]');
+          if (b) fireShipInfo();
+        } catch (err) {}
+      }, true);
+
       /* 주문 내용이 채워지면 «한 번만» 보낸다. 마감시한에도 강제 발사하지 않는다
          — 정말로 빈 주문서면 보낼 것이 없다(허수 금지). */
       whenReady(
@@ -688,6 +849,7 @@ var FJP_PII = (function () {
           }
           if (!bc.length) return false;
           push('begin_checkout2', { value: sum(bc), currency: CUR, items: bc }, attr());
+          if (pendingShip && !shipFired) fireShipInfo();                    /* 미뤄둔 배송지 입력 발사(퍼널 순서: 배송지→결제수단) */
           if (pendingPay !== null && !apiFired) firePayInfo(pendingPay);   /* 미뤄둔 결제수단 선택 발사 */
           return true;
         }, { forceAtDeadline: false });
@@ -1200,6 +1362,34 @@ var FJP_PII = (function () {
           io.observe(rv); return true;
         };
         if (!tryBind()) setTimeout(tryBind, 4000);
+      } catch (e) {}
+    })();
+
+    /* 리뷰 카드 노출(1회, 2026-10-25 신설) — 10/25 상세에 붙인 카드형 리뷰(.fa-rv-card)가
+       실제로 화면에 보였는지. 카드는 리뷰 칸이 보일 때 늦게 그려지므로 생기는 순간을 기다린다.
+       카드가 없는 상품(원래 표)에서는 아무것도 안 보낸다. 카드 정렬·더보기 «클릭»은 위 전체 클릭이 이미 잡는다. */
+    (function () {
+      try {
+        if (!('IntersectionObserver' in window) || !window.MutationObserver) return;
+        var rv = document.getElementById('prdReview'); if (!rv) return;
+        var bound = false;
+        var bind = function () {
+          if (bound) return true;
+          var list = rv.querySelector('.fa-rv-list');
+          if (!list || !list.querySelector('.fa-rv-card')) return false;
+          bound = true;
+          var io = new IntersectionObserver(function (es) {
+            for (var i = 0; i < es.length; i++) if (es[i].isIntersecting) {
+              ev('review_card_view');
+              io.disconnect(); break;
+            }
+          }, { threshold: 0.2 });
+          io.observe(list); return true;
+        };
+        if (bind()) return;
+        var mo = new MutationObserver(function () { if (bind()) mo.disconnect(); });
+        mo.observe(rv, { childList: true, subtree: true });
+        setTimeout(function () { try { mo.disconnect(); } catch (e) {} }, 600000);   /* 10분 뒤 감시 끝 */
       } catch (e) {}
     })();
 
