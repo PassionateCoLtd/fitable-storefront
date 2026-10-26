@@ -25,12 +25,12 @@ function setup(options = {}) {
   const buy=element('A','npay_btn_link npay_btn_pay btn_green',buyCell);
   const wish=element('A','npay_btn_link npay_btn_zzim',wishCell);
   const window = {localStorage: {getItem:k=>store.get(k),setItem:(k,v)=>store.set(k,v)},
-    dataLayer:[],gtag:(...args)=>{
+    dataLayer:options.dataLayer||[],aBasketProductData:options.basket,gtag:(...args)=>{
       if (args[0] === 'event') events.push(args);
       if (args[0] === 'get' && options.gaGet) args[3](options.gaGet[args[2]]);
     }};
   const context = {window,document,URLSearchParams,URL,Blob,
-    location:{hostname:'fitablekorea.com',pathname:'/product/detail.html',search:'?product_no=126&utm_source=naver&utm_medium=cpc&utm_campaign=fixture'},
+    location:options.location||{hostname:'fitablekorea.com',pathname:'/product/detail.html',search:'?product_no=126&utm_source=naver&utm_medium=cpc&utm_campaign=fixture'},
     navigator:{sendBeacon:(url,body)=>{beacons.push({url,body});return true;}},
     Date:class extends Date {static now(){return now;}},
     setTimeout:fn=>scheduled.push(fn)};
@@ -105,4 +105,34 @@ test('invalid getter results and missing session cookie never create identifiers
     const h=setup(opts);h.fire('click',h.buy);
     const p=JSON.parse(await h.beacons[0].body.text());assert.equal(p.cid,undefined);
   }
+});
+
+const BASKET={hostname:'m.fitablekorea.com',pathname:'/order/basket.html',search:''};
+async function intent(opts){const h=setup(opts);h.fire('click',h.buy);assert.equal(h.beacons.length,1);
+  const p=JSON.parse(await h.beacons[0].body.text());return {p,ev:h.events[0][2]};}
+test('basket NPay intent carries the first cart product number (beacon and GA4 event)',async()=>{
+  const {p,ev}=await intent({location:BASKET,basket:[{product_no:126,quantity:1},{product_no:155,quantity:1}]});
+  assert.equal(p.product_no,'126');assert.equal(ev.product_no,'126');assert.equal(p.kind,'npay');
+});
+test('basket falls back to dataLayer cart items when Cafe24 basket data is missing',async()=>{
+  const {p}=await intent({location:BASKET,dataLayer:[{event:'view_cart2',ecommerce:{items:[{item_id:184}],value:94800}}]});
+  assert.equal(p.product_no,'184');
+});
+test('basket with no readable or invalid product numbers keeps the old empty value',async()=>{
+  for (const basket of [undefined,[],[{product_no:'abc'}],[{}],[null]]) {
+    const {p}=await intent({location:BASKET,basket});assert.equal(p.product_no,'');
+  }
+});
+test('non-basket page without product number stays empty even if cart data exists',async()=>{
+  const {p}=await intent({location:{hostname:'m.fitablekorea.com',pathname:'/',search:''},basket:[{product_no:126}]});
+  assert.equal(p.product_no,'');
+});
+test('product page keeps its own product number over cart data',async()=>{
+  const {p}=await intent({basket:[{product_no:155}]});assert.equal(p.product_no,'126');
+});
+test('basket fallback ignores non-cart ecommerce events such as recommendation lists',async()=>{
+  const {p}=await intent({location:BASKET,dataLayer:[{event:'view_cart2',ecommerce:{items:[{item_id:184}]}},{event:'view_item_list',ecommerce:{items:[{item_id:30}]}}]});
+  assert.equal(p.product_no,'184');
+  const r=await intent({location:BASKET,dataLayer:[{event:'view_item_list',ecommerce:{items:[{item_id:30}]}}]});
+  assert.equal(r.p.product_no,'');
 });

@@ -272,6 +272,34 @@
       } catch (e) {}
     }
 
+    /* ── 2.5 장바구니 화면 상품번호 (2026-10-26) ──
+     * 장바구니 화면의 네이버페이는 장바구니 전체(basket_type all_buy)를 결제하는데 주소에
+     * 상품번호가 없어 비콘 product_no 가 비었다 → 백필 조인(상품번호 색인)에서 통째로 빠짐
+     * (10/19~25 합성ID 89건 중 3건). 카페24 장바구니 데이터의 첫 상품번호를 쓴다 — 조인은
+     * 주문 품목 중 하나만 맞으면 되고 금액·시각·결제창 게이트는 그대로다. 장바구니 화면에서만,
+     * 숫자 상품번호만. 고객정보 없음. 실패하면 빈 값(종전과 같음). */
+    function basketProductNo() {
+      try {
+        if (!/\/order\/basket/.test(location.pathname)) return '';
+        var d = window.aBasketProductData, i, n;
+        if (d && d.length) {
+          for (i = 0; i < d.length; i++) {
+            n = String((d[i] && d[i].product_no) || '');
+            if (/^\d{1,10}$/.test(n)) return n;
+          }
+        }
+        var dl = window.dataLayer || [], e;   // 예비: 장바구니 이벤트(view_cart 등)만 — 추천목록 오인 방지
+        for (i = dl.length - 1; i >= 0; i--) {
+          e = dl[i];
+          if (e && /cart/i.test(String(e.event || '')) && e.ecommerce && e.ecommerce.items) {
+            n = String((e.ecommerce.items[0] && e.ecommerce.items[0].item_id) || '');
+            return /^\d{1,10}$/.test(n) ? n : '';
+          }
+        }
+      } catch (e) {}
+      return '';
+    }
+
     /* ── 3. 결제 인텐트 포착 (실제 구매 버튼의 활성화만 기록) ── */
     var lastFire = 0;
     function payIntent(kind) {
@@ -283,6 +311,7 @@
       var m = location.search.match(/[?&]product_no=(\d+)/) ||
               location.pathname.match(/\/product\/[^\/]+\/(\d+)(?:\/|$)/);
       var pno = m ? m[1] : '';
+      if (!pno) pno = basketProductNo();
       send(kind === 'npay' ? 'np_checkout_start' : 'kp_checkout_start', { product_no: pno });
       /* ── 결제 이탈 직전 소재 인텐트 서버 비콘 (2026-07-11) ── */
       try {
