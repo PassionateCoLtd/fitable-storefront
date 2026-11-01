@@ -1105,13 +1105,21 @@ function FJP_INAPP() {
         if (pt) ec.payment_type = pt;
         var oid = ctx.oid, ex = attr();
         var sendNow = function (name, fn) { fn(); };            /* 화면이 닫히는 중이면 비동기 잠금이 안 끝날 수 있다 → 바로 */
-        (document.visibilityState === 'hidden' ? sendNow : orderLock)('fjp_plock_' + oid, function () {
+        var once = false, job = function () {
+          if (once) return; once = true;
           var l = readSent();
           if (sentHas(l, oid)) return;                         /* 다른 탭이 먼저 보냈다 */
           l.push({ id: oid, ts: Date.now(), st: 'sending' }); writeSent(l);   /* 보내기 «전에» 표시 */
           push('purchase2', ec, ex);
           try { var l2 = readSent(); for (var i2 = 0; i2 < l2.length; i2++) if (l2[i2].id === oid) l2[i2].st = 'sent'; writeSent(l2); } catch (e) {}
-        });
+        };
+        (document.visibilityState === 'hidden' ? sendNow : orderLock)('fjp_plock_' + oid, job);
+        /* 잠금을 기다리는 사이 화면이 닫히면 기다리지 않고 지금 한 번(목록을 다시 보고) */
+        if (!once) {
+          var onExit = function () { try { if (document.visibilityState === 'hidden') job(); } catch (e) {} };
+          window.addEventListener('pagehide', function () { try { job(); } catch (e) {} }, true);
+          document.addEventListener('visibilitychange', onExit, true);
+        }
         return true;
       }
 

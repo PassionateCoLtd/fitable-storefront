@@ -437,3 +437,14 @@ test('화면이 닫히는 중(hidden)의 마지막 구매 전송은 잠금을 �
   await wait(30);
   assert.equal(r.events('purchase2').length, 1);
 });
+test('잠금(localStorage)을 기다리는 사이 화면이 닫히면 그 자리에서 1건 · 나중에 잠금이 풀려도 2건 안 됨', async () => {
+  const oid = '20991231-0000556';
+  const r = load({ url: `https://fitablejp.com/order/order_result.html?order_id=${oid}`, setup: (win) => {
+    Object.defineProperty(win.navigator, 'locks', { value: undefined, configurable: true });
+    orderSetup({ oid, f: { payed_amount: '1' } })(win); } });
+  await new Promise(res => setTimeout(res, 3));      /* 첫 시도(0ms)는 돌았고 잠금 확인(60ms+)은 아직 */
+  r.w.dispatchEvent(new r.w.Event('pagehide'));
+  const n1 = r.events('purchase2').length;
+  await wait(300);
+  assert.equal(n1, 1); assert.equal(r.events('purchase2').length, 1);
+});
