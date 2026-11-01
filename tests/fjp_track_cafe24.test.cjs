@@ -296,10 +296,11 @@ test('담기 ②응답이 늦어도(클릭 폴백 시간보다 길게) 1건', as
   assert.equal(events('add_to_cart2').length, 1);
 });
 
-test('담기 ③통신 없는 클릭 폴백 뒤 별도 담기 통신 → 2건(폴백 뒤 열린 시도 비움)', async () => {
+test('담기 ③클릭 폴백 뒤 «새 클릭» 별도 담기 → 2건 · id 다름', async () => {
   const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500; fakeXhr(win, 0); } });
-  fire('click', w.document.getElementById('cart')); await wait(150);
-  basketXhr(w); await wait(150);
+  const btn = w.document.getElementById('cart');
+  fire('click', btn); await wait(150);
+  fire('click', btn); basketXhr(w); await wait(150);
   const a = events('add_to_cart2');
   assert.equal(a.length, 2); assert.notEqual(a[0].event_id, a[1].event_id);
 });
@@ -367,7 +368,9 @@ test('구매 중복 목록: 옛 문자열 목록 이어받기 · 500건 제한 �
   await wait(200);
   assert.equal(r2.events('purchase2').length, 1);
   const l = JSON.parse(r2.w.localStorage.getItem('fjp_purchase_sent'));
-  assert.equal(l.length, 500); assert.equal(l[l.length - 1].id, '20991231-0000778'); assert.equal(l[l.length - 1].st, 'sent');
+  const objs = l.filter(x => typeof x === 'object'), strs = l.filter(x => typeof x === 'string');
+  assert.equal(objs.length, 500); assert.equal(objs[objs.length - 1].id, '20991231-0000778'); assert.equal(objs[objs.length - 1].st, 'sent');
+  assert.equal(strs.length, 20, '되돌리기 호환: 최근 20건 문자열 그림자'); assert.equal(strs[strs.length - 1], '20991231-0000778');
 });
 
 /* ── 두 탭 동시 주문완료 ── */
@@ -447,4 +450,69 @@ test('잠금(localStorage)을 기다리는 사이 화면이 닫히면 그 자리
   const n1 = r.events('purchase2').length;
   await wait(300);
   assert.equal(n1, 1); assert.equal(r.events('purchase2').length, 1);
+});
+
+/* ── 2026-11-01 2회차 리뷰 ── */
+test('담기 요청이 클릭 폴백(1.2초)보다 늦게 시작돼도 1건 — 폴백 시도에 묶이고 다시 안 보냄', async () => {
+  for (const kind of ['xhr', 'fetch']) {
+    const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500; fakeXhr(win, 0);
+      win.fetch = () => new Promise(r => setTimeout(() => r({ status: 200 }), 5)); } });
+    fire('click', w.document.getElementById('cart')); await wait(150);        /* 폴백(압축 20ms) 발화 뒤 = 실제 1.3초 지연 시작 */
+    assert.equal(events('add_to_cart2').length, 1, kind + ' 폴백 1건');
+    if (kind === 'xhr') basketXhr(w); else w.fetch('/exec/front/order/basket/');
+    await wait(150);
+    assert.equal(events('add_to_cart2').length, 1, kind + ' 늦은 요청이 붙어도 1건');
+    assert.equal(w.sessionStorage.getItem('fjp_atc_pending'), null, '보류분 남지 않음(다음 화면 재전송 없음)');
+  }
+});
+test('폴백 시도 묶기는 첫 요청 1개뿐 — 같은 클릭 뒤 두 번째 요청(클릭 없음)은 새 id 로 별도 1건', async () => {
+  const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500; fakeXhr(win, 0); } });
+  fire('click', w.document.getElementById('cart')); await wait(150);
+  basketXhr(w); await wait(100); basketXhr(w); await wait(150);
+  const a = events('add_to_cart2');
+  assert.equal(a.length, 2); assert.notEqual(a[0].event_id, a[1].event_id);
+});
+test('클릭 뒤 15초가 지나 시작된 담기 요청은 새 시도(새 id)', async () => {
+  const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500; fakeXhr(win, 0); } });
+  fire('click', w.document.getElementById('cart')); await wait(150);
+  const realNow = w.Date.now; w.Date.now = () => realNow() + 16000;
+  try { basketXhr(w); await wait(150); } finally { w.Date.now = realNow; }
+  const a = events('add_to_cart2');
+  assert.equal(a.length, 2); assert.notEqual(a[0].event_id, a[1].event_id);
+});
+test('늦게 시작된 요청이 실패해도 폴백으로 이미 보낸 1건만(추가·취소 없음)', async () => {
+  const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500; fakeXhr(win, 0, 500); } });
+  fire('click', w.document.getElementById('cart')); await wait(150);
+  basketXhr(w); await wait(150);
+  assert.equal(events('add_to_cart2').length, 1);
+});
+test('되돌리기 호환: 버전 50 목록(객체만)은 어느 화면에서든 최근 20건 문자열 그림자가 붙는다 · 옛 코드 indexOf 로 찾힘', async () => {
+  const objs = Array.from({ length: 25 }, (_, i) => ({ id: '20991231-00010' + String(i).padStart(2, '0'), ts: Date.now(), st: 'sent' }));
+  const r = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.localStorage.setItem('fjp_purchase_sent', JSON.stringify(objs)); win.localStorage.setItem('fjp_fb_purchase_sent', JSON.stringify(objs.slice(0, 3))); } });
+  await wait(30);
+  for (const [k, n] of [['fjp_purchase_sent', 25], ['fjp_fb_purchase_sent', 3]]) {
+    const l = JSON.parse(r.w.localStorage.getItem(k));
+    const oldView = l.slice(-20);                               /* 옛 코드: slice(-20) 뒤 indexOf */
+    assert.ok(oldView.indexOf(objs[n - 1].id) > -1, k + ' 최근 주문이 옛 형식으로 보인다');
+    assert.equal(l.filter(x => typeof x === 'object').length, n, k + ' 객체 목록은 그대로');
+  }
+  /* 두 번 열어도 그림자를 또 붙이지 않는다 */
+  const once = r.w.localStorage.getItem('fjp_purchase_sent');
+  const r2 = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => win.localStorage.setItem('fjp_purchase_sent', once) });
+  await wait(30);
+  assert.equal(r2.w.localStorage.getItem('fjp_purchase_sent'), once);
+  /* 새 코드는 그림자 문자열을 별도 주문으로 세지 않는다 → 그 주문 재방문 0건 */
+  const oid = objs[24].id;
+  const r3 = load({ url: `https://fitablejp.com/order/order_result.html?order_id=${oid}`, setup: (win) => { orderSetup({ oid, f: { payed_amount: '1' } })(win); win.localStorage.setItem('fjp_purchase_sent', once); } });
+  await wait(200);
+  assert.equal(r3.events('purchase2').length, 0);
+});
+test('A 클릭→A 폴백→B 클릭·B 요청→늦은 A 요청 → 2건(늦은 A 요청은 폴백으로 보낸 A 에 묶임) — 2회차 Codex #1', async () => {
+  const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500; fakeXhr(win, 0); } });
+  const btn = w.document.getElementById('cart');
+  fire('click', btn); await wait(150);                 /* A 폴백 */
+  fire('click', btn); basketXhr(w); await wait(150);   /* B */
+  basketXhr(w); await wait(150);                       /* 늦은 A */
+  const a = events('add_to_cart2');
+  assert.equal(a.length, 2); assert.notEqual(a[0].event_id, a[1].event_id);
 });

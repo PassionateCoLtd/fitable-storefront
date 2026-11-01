@@ -432,6 +432,19 @@ function FJP_INAPP() {
       }
     } catch (e) {}
 
+    /* 2회차(11/1) 되돌리기 대비: 버전 50 이 적은 구매 목록(객체만)에 최근 20건 주문번호 문자열을 덧붙여 둔다.
+       버전 48 옛 코드(문자열 indexOf)로 되돌려도 이미 보낸 주문을 다시 보내지 않게. 이미 있으면 아무것도 안 한다. */
+    try {
+      ['fjp_purchase_sent', 'fjp_fb_purchase_sent'].forEach(function (k) {
+        var r = localStorage.getItem(k); if (!r || r.indexOf('{') < 0) return;
+        var l = JSON.parse(r); if (!l || !l.length) return;
+        var ids = [], has = {};
+        for (var i = 0; i < l.length; i++) { if (typeof l[i] === 'string') has[l[i]] = 1; else if (l[i] && l[i].id) ids.push(String(l[i].id)); }
+        var miss = ids.slice(-20).filter(function (x) { return !has[x]; });
+        if (miss.length) localStorage.setItem(k, JSON.stringify(l.concat(miss)));
+      });
+    } catch (e) {}
+
     var path = location.pathname;
     var isPdp   = FJP_IS_PDP && !!productNo();
     var isCart  = /\/order\/basket/.test(path);
@@ -586,7 +599,10 @@ function FJP_INAPP() {
         applyOptionRows(items);
         return { value: sum(items), currency: CUR, items: items };
       }
-      var openAtc = null;
+      /* 2회차(11/1): 폴백으로 보낸 시도도 «보냄·요청 대기»로 열어 둔다. 클릭 뒤 15초 안에 처음 시작되는 담기 요청은
+         그 시도에 묶이고, 이미 보냈으면 다시 보내지 않는다(요청이 1.2초 넘게 늦게 시작돼도 1건). 새 id 는 새 클릭이나
+         클릭 없이 시작된 담기 요청(또는 15초 지난 요청)일 때만 만든다. */
+      var openAtc = null, ATC_BIND_MS = 15000, firedAtc = [];   /* firedAtc = 폴백으로 보냈고 아직 요청이 안 붙은 시도(15초) */
       function startAtc() {
         var a = { id: newAtcId(), ec: atcPayload(), ts: Date.now(), stored: false, claimed: false };
         try { sessionStorage.setItem(PEND, JSON.stringify({ id: a.id, ec: a.ec, ts: a.ts })); a.stored = true; } catch (e) {}
@@ -597,14 +613,18 @@ function FJP_INAPP() {
           if (payFlag && Date.now() - payFlag < 1500) return;   /* 즉시구매는 begin_checkout 이 잡는다 */
           var a = startAtc(); openAtc = a;
           setTimeout(function () {                               /* 담기 통신이 안 붙었으면(폼 전송·통신 없는 스킨) 여기서 발사 */
-            try { if (!a.claimed) { sendAtc(a.id, a.ec); if (openAtc === a) openAtc = null; } } catch (e) {}   /* 통신에 붙은 시도는 통신 결과로만(실패면 0건) */
+            try { if (!a.claimed) { sendAtc(a.id, a.ec); for (var fk = firedAtc.length - 1; fk >= 0; fk--) if (Date.now() - firedAtc[fk].ts > ATC_BIND_MS) firedAtc.splice(fk, 1); firedAtc.push(a); if (firedAtc.length > 50) firedAtc.shift(); } } catch (e) {}   /* 통신에 붙은 시도는 통신 결과로만(실패면 0건) · 보낸 뒤에도 openAtc 는 비우지 않는다(늦게 시작된 요청을 여기에 묶는다) */
           }, 1200);
         } catch (e) {}
       }
-      /* 담기 통신이 시작될 때: 열린 시도에 붙인다. 이미 보낸 시도는 재사용하지 않는다(새 id) */
+      /* 담기 통신이 시작될 때: 열린 시도(클릭 뒤 15초 안·아직 요청이 안 붙은 것)에 붙인다. 폴백으로 이미 보냈어도 같은 시도 → 다시 안 보냄 */
       function claimAtc() {
         var a = openAtc; openAtc = null;
-        if (a && atcWasSent(a.id)) a = null;
+        if (a && (a.claimed || Date.now() - a.ts > ATC_BIND_MS)) a = null;
+        if (!a) {                                                 /* A 클릭→A 폴백→B 클릭·B 요청→늦은 A 요청: A 에 묶는다(3건 방지) */
+          for (var fi = 0; fi < firedAtc.length; fi++) { var f = firedAtc[fi]; if (!f.claimed && Date.now() - f.ts <= ATC_BIND_MS) { a = f; break; } }
+        }
+        if (a) { for (var fj = firedAtc.length - 1; fj >= 0; fj--) if (firedAtc[fj] === a || firedAtc[fj].claimed) firedAtc.splice(fj, 1); }
         if (!a && !(payFlag && Date.now() - payFlag < 1500)) a = startAtc();   /* 클릭을 못 잡은 담기(키보드 등) */
         if (a) a.claimed = true;
         return a;
@@ -959,16 +979,31 @@ function FJP_INAPP() {
          보내기 직전 «주문번호 잠금»으로 두 탭이 동시에 열려도 한 탭만 보낸다(대만 v6 와 같은 방식).
          www↔m 다른 출처끼리는 GA4 transaction_id 중복 제거에 맡긴다. */
       var K_SENT = 'fjp_purchase_sent', KEEP_N = 500, KEEP_MS = 90 * 864e5;
-      function readSent() {
-        var raw = [], now = Date.now(), out = [];
-        try { raw = JSON.parse(localStorage.getItem(K_SENT) || '[]') || []; } catch (e) { raw = []; }
-        for (var i = 0; i < raw.length; i++) {
-          var x = raw[i]; if (typeof x === 'string') x = { id: x, ts: now, st: 'sent' };   /* 옛 목록(문자열 20개) 이어받기 */
-          if (x && x.id && now - (x.ts || 0) < KEEP_MS) out.push(x);
+      /* 2회차(11/1) 되돌리기 호환: 버전 48 옛 코드는 «주문번호 문자열 목록»만 읽는다(indexOf).
+         그래서 쓸 때 객체 목록 뒤에 최근 20건 주문번호를 문자열로 한 번 더 적는다(옛 코드가 slice(-20) 해도 남는다).
+         읽을 때 객체와 짝인 문자열은 건너뛰고, 짝 없는 문자열(옛 목록·되돌린 기간에 적힌 것)만 이어받는다. */
+      var LEGACY_N = 20;
+      function sentNormalize(raw, keepN, keepMs) {
+        var now = Date.now(), out = [], seen = {};
+        for (var i = 0; i < raw.length; i++) { var y = raw[i]; if (y && typeof y === 'object' && y.id) seen[y.id] = 1; }
+        for (var j = 0; j < raw.length; j++) {
+          var x = raw[j];
+          if (typeof x === 'string') { if (seen[x]) continue; seen[x] = 1; x = { id: x, ts: now, st: 'sent' }; }   /* 옛 목록(문자열 20개) 이어받기 */
+          if (x && x.id && now - (x.ts || 0) < keepMs) out.push(x);
         }
-        return out.slice(-KEEP_N);
+        return out.slice(-keepN);
       }
-      function writeSent(l) { try { localStorage.setItem(K_SENT, JSON.stringify(l.slice(-KEEP_N))); } catch (e) {} }
+      function sentSerialize(l, keepN) {
+        var objs = l.slice(-keepN), sh = [];
+        for (var i = Math.max(0, objs.length - LEGACY_N); i < objs.length; i++) sh.push(String(objs[i].id));
+        return JSON.stringify(objs.concat(sh));
+      }
+      function readSent() {
+        var raw = [];
+        try { raw = JSON.parse(localStorage.getItem(K_SENT) || '[]') || []; } catch (e) { raw = []; }
+        return sentNormalize(raw, KEEP_N, KEEP_MS);
+      }
+      function writeSent(l) { try { localStorage.setItem(K_SENT, sentSerialize(l, KEEP_N)); } catch (e) {} }
       function sentHas(l, id) { for (var i = 0; i < l.length; i++) if (l[i].id === id) return true; return false; }
       /* 주문번호 단위 «보내는 중» 잠금. Web Locks(navigator.locks) 가 있으면 그것으로, 없으면 localStorage 짧은 잠금
          (소유자 표 + 3초, 쓰고 나서 다시 읽어 내 것일 때만). 남이 잡고 있으면 3초 뒤 다시 본다(그 사이 보냈으면 목록에서 걸러짐). */
