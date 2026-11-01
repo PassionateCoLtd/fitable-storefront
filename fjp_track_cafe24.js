@@ -648,6 +648,7 @@ function FJP_INAPP() {
         for (var i = 0; i < l.length; i++) { var c = String(l[i] == null ? '' : l[i]).replace(/\s+/g, '').toUpperCase(); if (c && !m[c]) { m[c] = 1; o.push(c); } }
         return o.sort().join(',');
       }
+      function codeOne(c) { return String(c == null ? '' : c).replace(/\s+/g, '').toUpperCase(); }
       function sameProd(a, r) {                                  /* r.pno 를 읽었을 때만 부른다 · 품목코드는 양쪽 다 있을 때만 비교(정규화한 전체 집합이 같을 때만 같음 — 리뷰 P1) */
         if (!a.pno) return true;
         if (a.pno !== r.pno) return false;
@@ -657,17 +658,30 @@ function FJP_INAPP() {
       function reqPayload(r) {            /* 리뷰 P1: 클릭 없이 요청으로 만든 시도의 이벤트 내용
           · 화면 상품과 같은 상품번호 → 화면 금액(단가) 그대로, 수량은 요청 수량
           · 다른 상품번호 → 요청에서 읽은 상품번호·품목코드·수량만. 금액은 확실히 모르니 value·price 를 넣지 않는다(틀린 금액보다 빈칸) */
-        var ps = r.items || [];
+        var ps = r.items || [], nm = r.name || '';
         if (pno && String(pno) === r.pno) {
-          var ec = atcPayload(), its = ec.items;
-          if (ps.length && ps.length === its.length) { for (var i = 0; i < its.length; i++) if (ps[i].q > 0) its[i].quantity = ps[i].q; }
-          else if (its.length === 1 && (r.qty || r.qf)) its[0].quantity = r.qty || r.qf;
-          ec.value = sum(its);
-          return ec;
+          /* 5회차(리뷰 P1): 요청 수량은 «품목코드»로 화면 품목에 짝짓는다(배열 순서 아님). 1:1 로 확실히 짝지어질 때만 화면 금액을 쓴다 */
+          var ec = atcPayload(), its = ec.items, ok = false, rc = [];
+          var rows = qa('tbody.option_products tr.option_product');
+          rows.forEach(function (rw) { var c = q('input.option_box_id', rw) || q('input[name^="item_code"]', rw); rc.push(c && c.value ? codeOne(c.value) : ''); });
+          if (its[0] && its[0].item_name) nm = its[0].item_name;
+          if (!ps.length) {                                      /* 품목별 수량이 없는 요청: 화면 품목이 1개일 때만 quantity 칸으로 */
+            if (its.length === 1) { if (r.qf > 0) its[0].quantity = r.qf; ok = true; }
+          } else {
+            var mq = {}, bad = false;
+            for (var k = 0; k < ps.length; k++) { var ck = codeOne(ps[k].code); if (!ck || !(ps[k].q > 0) || mq[ck]) { bad = true; break; } mq[ck] = ps[k].q; }
+            if (!bad && rows.length && rows.length === its.length && rows.length === ps.length) {   /* 화면 옵션 줄 = 요청 품목, 코드가 서로 1:1 */
+              var seen = {}, all = true;
+              for (var i = 0; i < rc.length; i++) { if (!rc[i] || seen[rc[i]] || !mq[rc[i]]) { all = false; break; } seen[rc[i]] = 1; }
+              if (all) { for (var i2 = 0; i2 < its.length; i2++) its[i2].quantity = mq[rc[i2]]; ok = true; }
+            } else if (!bad && !rows.length && its.length === 1 && ps.length === 1) { its[0].quantity = ps[0].q; ok = true; }   /* 옵션 줄 없는 화면 · 요청 품목 1개 */
+          }
+          if (ok) { ec.value = sum(its); return ec; }
+          /* 짝을 확실히 못 맞춤 → 아래(요청 품목·수량만, 금액 빈칸) */
         }
         var out = [];
-        for (var j = 0; j < ps.length; j++) out.push({ item_id: r.pno, item_name: r.name || '', quantity: ps[j].q > 0 ? ps[j].q : 1, item_variant: ps[j].code });
-        if (!out.length) out.push({ item_id: r.pno, item_name: r.name || '', quantity: r.qf > 0 ? r.qf : 1, item_variant: '_' });
+        for (var j = 0; j < ps.length; j++) out.push({ item_id: r.pno, item_name: nm, quantity: ps[j].q > 0 ? ps[j].q : 1, item_variant: ps[j].code });
+        if (!out.length) out.push({ item_id: r.pno, item_name: nm, quantity: r.qf > 0 ? r.qf : 1, item_variant: '_' });
         return { currency: CUR, items: out };
       }
       function startAtc(r) {

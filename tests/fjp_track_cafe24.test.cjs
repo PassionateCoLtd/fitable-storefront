@@ -642,3 +642,29 @@ test('4회차 ④같은 상품(186)인데 클릭 없는 요청 수량 3 → 수�
   const s = loadAtc(); sendBody(s.w, 'product_no=186&command=add&quantity=3'); await wait(150);
   assert.equal(s.events('add_to_cart2')[0].ecommerce.items[0].quantity, 3);
 });
+
+/* ══ 5회차(11/1) 독립 리뷰 2회차 P1: 같은 상품 여러 품목의 요청 수량은 «품목코드»로 짝 · 못 맞추면 금액 빈칸 ══════════════ */
+const PDP_BC2 = PDP_HTML.replace('</body>', `<table><tbody class="option_products">
+<tr class="option_product"><td><p class="product"><span>B</span></p><input class="option_box_id" name="item_code[]" value="P00000HE000B"><input class="quantity_opt" value="1"><input class="option_box_price" value="5990"></td></tr>
+<tr class="option_product"><td><p class="product"><span>C</span></p><input class="option_box_id" name="item_code[]" value="P00000HE000C"><input class="quantity_opt" value="1"><input class="option_box_price" value="7990"></td></tr>
+</tbody></table></body>`);
+const reqOnly = async (items, html = PDP_BC2) => { const r = loadAtc(html); sendBody(r.w, multiBody(186, items)); await wait(150); return r.events('add_to_cart2'); };
+test('5회차 ①화면 B=5,990·C=7,990 · 요청 [C×2, B×3] → 품목코드로 짝 → 33,950 (순서로 덮으면 35,950)', async () => {
+  const a = await reqOnly([[2, 'P00000HE000C'], [3, 'p00000he000b']]);
+  assert.equal(a.length, 1); const e = a[0].ecommerce;
+  assert.equal(e.value, 33950);
+  assert.deepEqual(JSON.parse(JSON.stringify(e.items.map(i => [i.item_variant, i.quantity, i.price]))), [['B', 3, 5990], ['C', 2, 7990]]);
+});
+test('5회차 ②코드·수량 짝을 확실히 못 맞추면 금액 없음(요청 품목·수량만)', async () => {
+  for (const [why, items] of [['품목 수 다름', [[3, 'P00000HE000B']]], ['코드 다름', [[1, 'P00000HE000B'], [2, 'P00000HE000D']]],
+                              ['코드 중복', [[1, 'P00000HE000B'], [2, 'P00000HE000B']]], ['수량 0', [[0, 'P00000HE000B'], [2, 'P00000HE000C']]]]) {
+    const a = await reqOnly(items); assert.equal(a.length, 1, why);
+    const e = a[0].ecommerce;
+    assert.ok(!('value' in e), why + ' value 없음'); assert.ok(e.items.every(i => !('price' in i)), why + ' price 없음');
+    assert.ok(e.items.every(i => i.item_id === '186'), why);
+    assert.deepEqual(JSON.parse(JSON.stringify(e.items.map(i => [i.item_variant, i.quantity]))), items.map(x => [x[1], x[0] > 0 ? x[0] : 1]), why);
+  }
+  /* 품목별 수량 없는 요청인데 화면 품목이 2개 → 금액 없음 */
+  const r = loadAtc(PDP_BC2); sendBody(r.w, 'product_no=186&command=add&quantity=3'); await wait(150);
+  const e = r.events('add_to_cart2')[0].ecommerce; assert.ok(!('value' in e)); assert.equal(e.items[0].quantity, 3);
+});
