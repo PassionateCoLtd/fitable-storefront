@@ -603,8 +603,53 @@ function FJP_INAPP() {
          그 시도에 묶이고, 이미 보냈으면 다시 보내지 않는다(요청이 1.2초 넘게 늦게 시작돼도 1건). 새 id 는 새 클릭이나
          클릭 없이 시작된 담기 요청(또는 15초 지난 요청)일 때만 만든다. */
       var openAtc = null, ATC_BIND_MS = 15000, firedAtc = [];   /* firedAtc = 폴백으로 보냈고 아직 요청이 안 붙은 시도(15초) */
-      function startAtc() {
-        var a = { id: newAtcId(), ec: atcPayload(), ts: Date.now(), stored: false, claimed: false };
+      /* 3회차(11/1): 시간만 보고 묶지 않는다. 시도마다 «무슨 상품을 담았나»(상품번호·품목코드·수량)를 적어 두고,
+         담기 요청 본문·주소에서 읽은 상품번호(+품목코드)가 같을 때만 그 시도에 묶는다. 다르면 새 시도·새 id.
+         카페24 담기 요청 본문(11/1 실측): product_no=186&selected_item[]=1||P00000HE000B&option1=…&quantity=1 (폼 인코딩 문자열).
+         요청에서 상품번호를 못 읽으면 2회차처럼 시간만 보고 묶고, 진단 신호 jp01_pdp_diag(cta_kind=atc_nopno_…)를 남긴다. */
+      var ITEM_CODE = /^P[0-9A-Z]{11}$/;
+      function atcIdent() {                                      /* 클릭 시점 화면: 이 상세의 상품번호 + 고른 품목코드 + 수량 */
+        var codes = [], qn = 0;
+        qa('tbody.option_products tr.option_product').forEach(function (r) {
+          var c = q('input.option_box_id', r) || q('input[name^="item_code"]', r);
+          if (c && c.value) codes.push(String(c.value));
+          var qv = q('input.quantity_opt', r); if (qv) qn += num(qv.value) || 0;
+        });
+        if (!codes.length) { var sel = q('select[id^=product_option_id]'); if (sel && sel.selectedIndex > 0 && ITEM_CODE.test(sel.value || '')) codes.push(sel.value); }
+        return { pno: pno ? String(pno) : null, codes: codes, qty: qn || qty() };
+      }
+      function qsPairs(t, out) {
+        String(t || '').split('&').forEach(function (kv) {
+          if (!kv) return;
+          var i = kv.indexOf('='), k = i < 0 ? kv : kv.slice(0, i), v = i < 0 ? '' : kv.slice(i + 1);
+          try { k = decodeURIComponent(k.replace(/\+/g, ' ')); v = decodeURIComponent(v.replace(/\+/g, ' ')); } catch (e) {}
+          out.push([k, v]);
+        });
+      }
+      function reqIdent(url, body) {                             /* 담기 요청: 주소 뒤 ?… 와 본문(문자열·URLSearchParams·FormData)에서 읽는다 */
+        var kv = [], p = null, codes = [], qn = 0;
+        try {
+          var u = String(url || ''), qi = u.indexOf('?'); if (qi > -1) qsPairs(u.slice(qi + 1).split('#')[0], kv);
+          if (typeof body === 'string') qsPairs(body, kv);
+          else if (body && typeof body.forEach === 'function' && typeof body.get === 'function') body.forEach(function (v, k) { kv.push([String(k), typeof v === 'string' ? v : '']); });
+        } catch (e) {}
+        for (var i = 0; i < kv.length; i++) {
+          var k = kv[i][0], v = String(kv[i][1] || '');
+          if (k === 'product_no' && !p && /^\d+$/.test(v)) p = v;
+          else if (/^selected_item\[\d*\]$/.test(k)) { var m = v.split('||'); if (m.length > 1 && m[1]) { codes.push(m[1]); qn += num(m[0]) || 0; } }
+        }
+        if (!codes.length) for (var j = 0; j < kv.length; j++) if (/^option\d+$/.test(kv[j][0]) && ITEM_CODE.test(kv[j][1] || '')) codes.push(kv[j][1]);
+        return { pno: p, codes: codes, qty: qn };
+      }
+      function sameProd(a, r) {                                  /* r.pno 를 읽었을 때만 부른다 · 품목코드는 양쪽 다 있을 때만 비교(하나라도 겹치면 같음) */
+        if (!a.pno) return true;
+        if (a.pno !== r.pno) return false;
+        if (a.codes && a.codes.length && r.codes.length) { for (var i = 0; i < r.codes.length; i++) if (a.codes.indexOf(r.codes[i]) > -1) return true; return false; }
+        return true;
+      }
+      function startAtc(r) {
+        var who = (r && r.pno) ? r : atcIdent();                 /* 클릭 없이 시작된 요청이면 그 요청의 상품번호로 적는다 */
+        var a = { id: newAtcId(), ec: atcPayload(), ts: Date.now(), stored: false, claimed: false, pno: who.pno, codes: who.codes || [], qty: who.qty };
         try { sessionStorage.setItem(PEND, JSON.stringify({ id: a.id, ec: a.ec, ts: a.ts })); a.stored = true; } catch (e) {}
         return a;
       }
@@ -618,14 +663,18 @@ function FJP_INAPP() {
         } catch (e) {}
       }
       /* 담기 통신이 시작될 때: 열린 시도(클릭 뒤 15초 안·아직 요청이 안 붙은 것)에 붙인다. 폴백으로 이미 보냈어도 같은 시도 → 다시 안 보냄 */
-      function claimAtc() {
-        var a = openAtc; openAtc = null;
-        if (a && (a.claimed || Date.now() - a.ts > ATC_BIND_MS)) a = null;
-        if (!a) {                                                 /* A 클릭→A 폴백→B 클릭·B 요청→늦은 A 요청: A 에 묶는다(3건 방지) */
-          for (var fi = 0; fi < firedAtc.length; fi++) { var f = firedAtc[fi]; if (!f.claimed && Date.now() - f.ts <= ATC_BIND_MS) { a = f; break; } }
+      function claimAtc(r) {
+        var known = !!(r && r.pno), now = Date.now();
+        var a = openAtc;
+        if (a && (a.claimed || now - a.ts > ATC_BIND_MS)) { openAtc = null; a = null; }
+        if (a && known && !sameProd(a, r)) a = null;              /* 3회차: 상품이 다르면 열린 시도는 그대로 두고(제 요청을 기다림) 이 요청은 따로 */
+        else if (a) openAtc = null;
+        if (!a) {                                                 /* A 클릭→A 폴백→B 클릭·B 요청→늦은 A 요청: A 에 묶는다(3건 방지) · 3회차: 같은 상품일 때만 */
+          for (var fi = 0; fi < firedAtc.length; fi++) { var f = firedAtc[fi]; if (!f.claimed && now - f.ts <= ATC_BIND_MS && (!known || sameProd(f, r))) { a = f; break; } }
         }
         if (a) { for (var fj = firedAtc.length - 1; fj >= 0; fj--) if (firedAtc[fj] === a || firedAtc[fj].claimed) firedAtc.splice(fj, 1); }
-        if (!a && !(payFlag && Date.now() - payFlag < 1500)) a = startAtc();   /* 클릭을 못 잡은 담기(키보드 등) */
+        if (!known) diag(a ? 'atc_nopno_bound' : 'atc_nopno_new');   /* 상품번호를 못 읽어 시간만 보고 묶은(또는 새로 만든) 횟수 */
+        if (!a && !(payFlag && now - payFlag < 1500)) a = startAtc(r);   /* 클릭을 못 잡은 담기(키보드 등) · 다른 상품 요청 */
         if (a) a.claimed = true;
         return a;
       }
@@ -689,7 +738,7 @@ function FJP_INAPP() {
             try {
               var xhr = this;
               if (HIT_ATC.test(xhr.__fjpUrl || '')) {
-                var a = claimAtc();
+                var a = claimAtc(reqIdent(xhr.__fjpUrl, arguments[0]));
                 if (a) xhr.addEventListener('loadend', function () { finishAtc(a, xhr.status >= 200 && xhr.status < 400); });
               }
             } catch (e) {}
@@ -698,9 +747,9 @@ function FJP_INAPP() {
         }
         if (window.fetch && !window.fetch.__fjpAtcHooked) {
           var ofetch = window.fetch;
-          var nfetch = function (input) {
+          var nfetch = function (input, init) {
             var a = null;
-            try { var u = (typeof input === 'string') ? input : (input && input.url) || ''; if (HIT_ATC.test(u)) a = claimAtc(); } catch (e) {}
+            try { var u = (typeof input === 'string') ? input : (input && input.url) || ''; if (HIT_ATC.test(u)) a = claimAtc(reqIdent(u, init && init.body)); } catch (e) {}
             var p = ofetch.apply(this, arguments);
             if (a) { try { p.then(function (r) { finishAtc(a, !!(r && r.status >= 200 && r.status < 400)); }, function () { finishAtc(a, false); }); } catch (e) {} }
             return p;

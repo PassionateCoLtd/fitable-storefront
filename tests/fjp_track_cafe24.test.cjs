@@ -516,3 +516,89 @@ test('A 클릭→A 폴백→B 클릭·B 요청→늦은 A 요청 → 2건(늦은
   const a = events('add_to_cart2');
   assert.equal(a.length, 2); assert.notEqual(a[0].event_id, a[1].event_id);
 });
+
+/* ══ 3회차(11/1) 담기 시도-요청 묶기 = 상품번호(+품목코드) 대조 — Codex 3회차 P1 ══════════════
+   카페24 실제 담기 요청 본문(11/1 실측 형식): product_no=186&selected_item%5B%5D=1%7C%7CP00000HE000B&…&quantity=1 */
+const realBody = (pno = 186, code = 'P00000HE000B', q = 1) =>
+  `selected_item%5B%5D=${q}%7C%7C${code}&relation_product=yes&is_individual=F&product_no=${pno}&product_name=X&main_cate_no=0&option_type=T&command=add&has_option=T&product_price=11500&delvType=B&redirect=2&basket_type=A0000&quantity=${q}&optionids%5B%5D=option1&option1=${code}`;
+const realXhr = (w, pno, code) => { const x = new w.XMLHttpRequest(); x.open('POST', '/exec/front/order/basket/'); x.send(realBody(pno, code)); };
+const PDP_ROWS = PDP_HTML.replace('</body>', `<table><tbody class="option_products"><tr class="option_product"><td><p class="product"><span>ホワイト</span></p>
+<input class="option_box_id" name="item_code[]" value="P00000HE000B"><input class="quantity_opt" value="1"><input class="option_box_price" value="11500"></td></tr></tbody></table></body>`);
+const diags = (w) => w.dataLayer.filter(e => e && e.event === 'jp01_pdp_diag' && /^atc_nopno/.test(e.cta_kind)).map(e => e.cta_kind);
+const loadAtc = (html = PDP_HTML, status = 200) => load({ url: PDP_URL, html, setup: (win) => { win.product_price = 11500; fakeXhr(win, 0, status); } });
+
+test('3회차 ①A 폴백 전송 → 15초 안 B 상품 요청(클릭 감지 없음) → 2건 · id 다름', async () => {
+  const { events, fire, w } = loadAtc();
+  fire('click', w.document.getElementById('cart')); await wait(150);         /* A 폴백 */
+  assert.equal(events('add_to_cart2').length, 1);
+  realXhr(w, 999, 'P00000ZZ000A'); await wait(150);                           /* B 상품 요청 */
+  const a = events('add_to_cart2');
+  assert.equal(a.length, 2); assert.notEqual(a[0].event_id, a[1].event_id);
+  assert.equal(diags(w).length, 0, '상품번호를 읽었으니 진단 신호 없음');
+});
+test('3회차 ②A 폴백 전송 → 같은 A 상품 요청 → 1건(XHR 문자열·fetch 문자열·fetch URLSearchParams·fetch FormData)', async () => {
+  for (const kind of ['xhr', 'fetch', 'usp', 'fd']) {
+    const { events, fire, w } = load({ url: PDP_URL, html: PDP_ROWS, setup: (win) => { win.product_price = 11500; fakeXhr(win, 0);
+      win.fetch = () => new Promise(r => setTimeout(() => r({ status: 200 }), 5)); } });
+    fire('click', w.document.getElementById('cart')); await wait(150);
+    if (kind === 'xhr') realXhr(w, 186, 'P00000HE000B');
+    else if (kind === 'fetch') w.fetch('/exec/front/order/basket/', { method: 'POST', body: realBody() });
+    else if (kind === 'usp') w.fetch('/exec/front/order/basket/', { method: 'POST', body: new w.URLSearchParams(realBody()) });
+    else { const fd = new w.FormData(); fd.append('product_no', '186'); fd.append('selected_item[]', '1||P00000HE000B'); w.fetch('/exec/front/order/basket/', { method: 'POST', body: fd }); }
+    await wait(150);
+    assert.equal(events('add_to_cart2').length, 1, kind);
+    assert.equal(diags(w).length, 0, kind);
+    /* 같은 화면에서 B 상품도 각 방식으로 → 새 건 */
+    if (kind === 'xhr') realXhr(w, 999, 'P00000ZZ000A');
+    else if (kind === 'fetch') w.fetch('/exec/front/order/basket/', { method: 'POST', body: realBody(999, 'P00000ZZ000A') });
+    else if (kind === 'usp') w.fetch('/exec/front/order/basket/', { method: 'POST', body: new w.URLSearchParams(realBody(999, 'P00000ZZ000A')) });
+    else { const fd = new w.FormData(); fd.append('product_no', '999'); w.fetch('/exec/front/order/basket/', { method: 'POST', body: fd }); }
+    await wait(150);
+    assert.equal(events('add_to_cart2').length, 2, kind + ' B');
+  }
+});
+test('3회차 ③같은 상품이라도 품목코드(옵션)가 다르면 별도 → 2건 · 같으면 1건', async () => {
+  const r = loadAtc(PDP_ROWS);
+  r.fire('click', r.w.document.getElementById('cart')); await wait(150);
+  realXhr(r.w, 186, 'P00000HE000C'); await wait(150);
+  assert.equal(r.events('add_to_cart2').length, 2);
+  const s = loadAtc(PDP_ROWS);
+  s.fire('click', s.w.document.getElementById('cart')); await wait(150);
+  realXhr(s.w, 186, 'P00000HE000B'); await wait(150);
+  assert.equal(s.events('add_to_cart2').length, 1);
+});
+test('3회차 ④A 클릭(요청 전) → B 상품 요청 → A 요청 → 2건(B 는 새 시도, A 시도는 열린 채 제 요청에 묶임)', async () => {
+  const { events, fire, w } = loadAtc();
+  fire('click', w.document.getElementById('cart'));
+  realXhr(w, 999, 'P00000ZZ000A'); realXhr(w, 186, 'P00000HE000B'); await wait(200);
+  const a = events('add_to_cart2');
+  assert.equal(a.length, 2); assert.notEqual(a[0].event_id, a[1].event_id);
+});
+test('3회차 ⑤요청에서 상품번호를 못 읽으면 2회차처럼 시간만 보고 묶는다(1건) · 진단 신호 atc_nopno_bound/new 로 횟수를 남긴다', async () => {
+  const { events, fire, w } = loadAtc();
+  fire('click', w.document.getElementById('cart')); await wait(150);
+  basketXhr(w); await wait(150);                                              /* 본문 p=186 → 상품번호 없음 */
+  assert.equal(events('add_to_cart2').length, 1);
+  basketXhr(w); await wait(150);                                              /* 묶을 시도 없음 → 새 시도 */
+  assert.equal(events('add_to_cart2').length, 2);
+  assert.deepEqual(diags(w), ['atc_nopno_bound', 'atc_nopno_new']);
+});
+test('3회차 ⑥회귀(실제 본문 형식) — 2번 담기 2건 · 지연 응답 1건 · 늦은 시작 1건 · 폴백 뒤 새 클릭 2건 · A→B→늦은 A 2건 · 실패 0건', async () => {
+  let r = loadAtc(PDP_ROWS); let btn = r.w.document.getElementById('cart');
+  r.fire('click', btn); realXhr(r.w); await wait(150); r.fire('click', btn); realXhr(r.w); await wait(150);
+  assert.equal(r.events('add_to_cart2').length, 2, '2번 담기');
+  r = load({ url: PDP_URL, html: PDP_ROWS, setup: (win) => { win.product_price = 11500; fakeXhr(win, 120); } });
+  r.fire('click', r.w.document.getElementById('cart')); realXhr(r.w); await wait(300);
+  assert.equal(r.events('add_to_cart2').length, 1, '지연 응답');
+  r = loadAtc(PDP_ROWS); r.fire('click', r.w.document.getElementById('cart')); await wait(150); realXhr(r.w); await wait(150);
+  assert.equal(r.events('add_to_cart2').length, 1, '늦은 시작');
+  r = loadAtc(PDP_ROWS); btn = r.w.document.getElementById('cart');
+  r.fire('click', btn); await wait(150); r.fire('click', btn); realXhr(r.w); await wait(150);
+  assert.equal(r.events('add_to_cart2').length, 2, '폴백 뒤 새 클릭');
+  r = loadAtc(PDP_ROWS); btn = r.w.document.getElementById('cart');
+  r.fire('click', btn); await wait(150); r.fire('click', btn); realXhr(r.w); await wait(150); realXhr(r.w); await wait(150);
+  assert.equal(r.events('add_to_cart2').length, 2, 'A→B→늦은 A');
+  r = loadAtc(PDP_ROWS, 500); r.fire('click', r.w.document.getElementById('cart')); realXhr(r.w); await wait(300);
+  assert.equal(r.events('add_to_cart2').length, 0, '실패');
+  assert.equal(diags(r.w).length, 0);
+});
