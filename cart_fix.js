@@ -10,9 +10,17 @@
      · 응답이 실패(result≠0)면 안 보낸다. 품목 단가를 1:1 로 못 맞추면 금액(value)을 비운다(틀린 금액보다 빈칸).
      · 전송은 dataLayer 'fit_add_to_cart' → 우리 GTM(GTM-P99J83LM) 태그 33 이 GA4 로 보낸다(사내 접속 차단이 걸리게).
    begin_checkout(바로구매 클릭)은 v1 과 똑같이 둔다(이번 수정 범위 밖).
-   되돌리기 = 스크립트태그 src 를 옛 커밋 cdeafa5 로(DELETE→POST). */
+   v3(2026-11-01 리뷰 수정):
+     · 옵션 없는 추가구성상품(예: 31 스틸 푸쉬업바)은 단가표가 없다 → 요청 품목코드 = add_option_data[상품].item_code 일 때만 product_sale_price.
+     · 클릭 없는 담기 요청은 «15초 안 + 상품번호·품목코드 집합이 같을 때»만 하나로 묶는다(일본 v54 와 같은 규칙).
+       화면과 다른 상품 요청은 요청의 상품번호·품목코드·수량으로 만들고 금액은 비운다.
+     · fetch(Request)·fetch(URL, init)도 읽는다(Request 는 clone 으로, 원래 요청은 건드리지 않고 늦추지 않음).
+     · XHR 재사용: 요청마다 붙인 리스너는 끝나면 뗀다. 완료는 «readyState 4 + 같은 세대»일 때 한 번만.
+     · 성공은 «JSON 이고 result 가 0 이상인 숫자»일 때만(카페24 basket_result_action 의 aData.result >= 0 과 같음).
+       JSON 이 아니거나 result 가 없으면 실패로 본다. responseType=json 이면 response 를 읽는다.
+   되돌리기 = rollback_kr.py(스크립트태그 src 를 직전 커밋으로, POST 확인 → 옛 태그 DELETE). */
 (function () {
-  if (window.__fitableCartFix) return; window.__fitableCartFix = 2;
+  if (window.__fitableCartFix) return; window.__fitableCartFix = 3;
   var WIN_MS = 15000;
   var att = null;      /* 담기 시도 {id, ts, kind:'cart'|'buy'|'pay', used} */
 
@@ -78,8 +86,29 @@
   function pj(x) { if (x && typeof x === 'object') return x; try { return JSON.parse(x); } catch (e) { return null; } }
   function num(v) { if (v === undefined || v === null || v === '') return null; var n = Number(String(v).replace(/[\s,]/g, '')); return isFinite(n) ? n : null; }
 
+  function codeOne(c) { return String(c == null ? '' : c).replace(/\s+/g, '').toUpperCase(); }
+  /* 요청 식별: 상품번호 + 품목코드 집합(정규화·중복 제거·정렬). 추가구성상품은 «상품번호:품목코드» */
+  function reqKey(r) {
+    var m = {}, o = [];
+    function put(c) { c = codeOne(c); if (c && !m[c]) { m[c] = 1; o.push(c); } }
+    r.sel.forEach(function (s) { put(String(s).split('||')[1]); });
+    r.add.forEach(function (s) { var p = String(s).split('||'); put((p[2] || '') + ':' + (p[1] || '')); });
+    return codeOne(r.f.product_no) + '|' + o.sort().join(',');
+  }
+  function screenPno() { var v = window.iProductNo; return (v === undefined || v === null) ? '' : codeOne(v); }
+  function otherProd(r) { var s = screenPno(), p = codeOne(r.f.product_no); return !!(s && p && s !== p); }
+  /* 화면과 다른 상품: 요청의 상품번호·품목코드·수량만. 화면 단가표는 그 상품 것이 아니라 금액은 비운다(틀린 금액보다 빈칸) */
+  function buildReqOnly(r) {
+    var pno = String(r.f.product_no || ''), nm = r.f.product_name || '', items = [];
+    r.sel.forEach(function (s) { var p = s.split('||'), q = parseInt(p[0], 10); if (q > 0) items.push({ item_id: pno, item_name: nm, quantity: q, item_variant: p[1] || '' }); });
+    if (!r.sel.length) { var q0 = parseInt(r.f.quantity, 10); items.push({ item_id: pno, item_name: nm, quantity: q0 > 0 ? q0 : 1 }); }
+    r.add.forEach(function (s) { var p = s.split('||'), q = parseInt(p[0], 10); if (q > 0 && p[2]) items.push({ item_id: String(p[2]), item_name: p[6] || '', quantity: q, item_variant: p[1] || '' }); });
+    return items.length ? { items: items, value: null } : null;
+  }
+
   /* 품목코드 → 단가(option_price: 옵션 추가금 포함 판매가)·옵션 이름 */
   function build(r) {
+    if (otherProd(r)) return buildReqOnly(r);
     var pno = String(r.f.product_no || window.iProductNo || '');
     var name = r.f.product_name || window.product_name || '';
     var cat = (window.iCategoryNo !== undefined && window.iCategoryNo !== null) ? String(window.iCategoryNo) : undefined;
@@ -114,6 +143,8 @@
       if (!(q > 0) || !apno) { ok = false; return; }
       var a = addAll[apno] || {}; var ao = pj(a.option_stock_data) || {}; var o = ao[code];
       var price = o ? num(o.option_price) : null;
+      /* 옵션 없는 추가구성상품: 단가표가 없고 품목코드 하나(item_code)뿐 → 같은 코드일 때만 실제 판매가 */
+      if (price === null && !o && a.has_option === 'F' && code && codeOne(code) === codeOne(a.item_code)) price = num(a.product_sale_price);
       push(apno, a.product_name || p[6] || '', q, price, o && o.option_value ? String(o.option_value) : '', undefined);
     });
     if (!items.length) return null;
@@ -122,20 +153,29 @@
   }
 
   /* 요청 1건 판정: 담기 요청이면 시도를 잡는다(시도 1개 = 1건) */
+  var recent = [];   /* 최근 15초 안에 센 요청 {key, ts, c} — 같은 상품번호·품목코드 집합의 되풀이 요청만 묶는다 */
   function claim(s) {
     var r = parseBody(s); if (!r || r.f.command !== 'add' || r.f.is_direct_buy === 'T') return null;
-    var t = Date.now(), a = att;
-    if (a && t - a.ts < WIN_MS) {
-      if (a.kind !== 'cart' || a.used) return null;      /* 바로구매·간편결제 뒤 담기 통신, 또는 이미 보낸 시도 */
-    } else {
-      a = att = { id: rid('kra_r'), ts: t, kind: 'cart', used: false };   /* 클릭을 못 본 담기(다른 버튼) — 요청 기준 1건 */
+    var t = Date.now(), a = att, key = reqKey(r), other = otherProd(r);
+    for (var i = recent.length - 1; i >= 0; i--) if (t - recent[i].ts >= WIN_MS) recent.splice(i, 1);
+    var fresh = !!(a && t - a.ts < WIN_MS);
+    if (fresh && a.kind !== 'cart' && !other) return null;               /* 바로구매·간편결제 클릭 뒤 화면 상품 담기 통신 */
+    if (fresh && a.kind === 'cart' && !a.used && !other) a.used = true;  /* 「장바구니」 클릭 시도에 붙인다 */
+    else {
+      for (var j = 0; j < recent.length; j++) if (recent[j].key === key) return null;   /* 15초 안 같은 요청 되풀이 = 같은 담기 */
+      a = { id: rid('kra_r'), ts: t, kind: 'cart', used: true };        /* 클릭을 못 본 담기·다른 상품 — 요청 기준 1건(열린 클릭 시도는 그대로) */
     }
-    a.used = true;
-    return { a: a, r: r };
+    var c = { a: a, r: r, key: key, fin: false };
+    recent.push({ key: key, ts: t, c: c }); if (recent.length > 50) recent.shift();
+    return c;
   }
   function done(c, ok) {
-    if (!c) return;
-    if (!ok) { c.a.used = false; return; }               /* 실패 응답 = 안 보냄, 같은 시도로 다시 담으면 그때 1건 */
+    if (!c || c.fin) return; c.fin = true;                 /* 완료 처리는 요청마다 한 번만 */
+    if (!ok) {                                             /* 실패 응답 = 안 보냄, 다시 담으면 그때 1건 */
+      c.a.used = false;
+      for (var i = recent.length - 1; i >= 0; i--) if (recent[i].c === c) recent.splice(i, 1);
+      return;
+    }
     var b = build(c.r); if (!b) return;
     var ec = { currency: 'KRW', items: b.items }; if (b.value !== null) ec.value = b.value;
     try {
@@ -144,10 +184,20 @@
       dl.push({ event: 'fit_add_to_cart', fit_atc_id: c.a.id, ecommerce: ec });
     } catch (e) {}
   }
-  function okResp(status, text) {
+  /* 카페24 담기 응답 실측(11/1 probe_qty2): {"result":0,"isLogin":"F",...}. 카페24 자기 코드(basket_result_action)도 result >= 0 만 성공.
+     같은 상품이 이미 있을 때의 «장바구니에 동일한 상품이 있습니다» 확인은 따로 /exec/front/order/Basketduplicate/ 로 묻고
+     ({"result":true}) 확인을 누르면 그때 보통 담기 요청이 나간다 → 확인 요청은 아래 정규식(basket/)에 안 걸린다. */
+  function okResp(status, body) {
     if (!(status >= 200 && status < 300)) return false;
-    var j = pj(text); if (!j) return true;              /* JSON 아님(예전 형식) = 성공 응답으로 본다 */
-    return j.result === undefined || String(j.result) === '0';
+    var j = pj(body); if (!j || typeof j !== 'object') return false;     /* JSON 아님·빈 응답 = 성공으로 안 본다 */
+    var rs = j.result;
+    if (typeof rs === 'number') return isFinite(rs) && rs >= 0;
+    if (typeof rs === 'string' && /^\s*-?\d+\s*$/.test(rs)) return Number(rs) >= 0;
+    return false;
+  }
+  function xhrBody(x) {
+    try { var rt = x.responseType; if (rt === 'json') return x.response; if (!rt || rt === 'text') return x.responseText; } catch (e) {}
+    return null;
   }
   var BASKET = /\/exec\/front\/order\/basket\/?(\?|$)/;
 
@@ -156,13 +206,27 @@
     var X = XMLHttpRequest.prototype, oOpen = X.open, oSend = X.send;
     X.open = function (m, u) { try { this.__fitUrl = String(u || ''); } catch (e) {} return oOpen.apply(this, arguments); };
     X.send = function (body) {
+      var c = null, h = null, x = this, gen = 0;
+      function off() { try { x.removeEventListener('readystatechange', h); x.removeEventListener('loadend', h); } catch (e) {} }
       try {
-        if (BASKET.test(this.__fitUrl || '')) {
-          var c = claim(bodyStr(body));
-          if (c) { var x = this; x.addEventListener('loadend', function () { var txt = ''; try { txt = x.responseText; } catch (e) {} done(c, okResp(x.status, txt)); }); }
+        if (BASKET.test(x.__fitUrl || '')) {
+          c = claim(bodyStr(body));
+          if (c) {
+            /* 요청마다 리스너 한 벌(세대 번호) — 끝나면 뗀다. 같은 XHR 을 다음 요청에 다시 쓰면(onload 안 open 등)
+               앞 요청의 늦은 loadend 가 새 요청 리스너를 부르므로, 완료는 «readyState 4 + 같은 세대»일 때만 본다. */
+            gen = x.__fitGen = (x.__fitGen || 0) + 1;
+            h = function () {
+              if (c.fin) { off(); return; }
+              if (x.__fitGen !== gen) { off(); done(c, false); return; }   /* 끝을 못 본 채 다음 요청에 재사용됨 = 안 보냄 */
+              if (x.readyState !== 4) return;                               /* 아직이거나 앞 요청의 늦은 이벤트 */
+              off(); done(c, okResp(x.status, xhrBody(x)));
+            };
+            x.addEventListener('readystatechange', h); x.addEventListener('loadend', h);
+          }
         }
       } catch (e) {}
-      return oSend.apply(this, arguments);
+      try { return oSend.apply(x, arguments); }
+      catch (err) { try { if (h) { off(); done(c, false); } } catch (e2) {} throw err; }
     };
   } catch (e) {}
   /* fetch 훅(카페24가 바꿀 때 대비) */
@@ -170,11 +234,30 @@
     if (typeof window.fetch === 'function') {
       var oFetch = window.fetch;
       window.fetch = function (input, init) {
-        var c = null;
-        try { var u = typeof input === 'string' ? input : (input && input.url) || '';
-          if (BASKET.test(u) && init && init.body) c = claim(bodyStr(init.body)); } catch (e) {}
+        var c = null, pend = null;
+        try {
+          var isReq = typeof Request !== 'undefined' && input instanceof Request;
+          var u = typeof input === 'string' ? input : isReq ? input.url : (input && typeof input.href === 'string') ? input.href : (input != null ? String(input) : '');
+          if (BASKET.test(u)) {
+            if (init && init.body != null) c = claim(bodyStr(init.body));            /* init.body 가 Request 본문보다 우선(fetch 규칙) */
+            else if (isReq && !input.bodyUsed) {                                     /* Request 본문은 사본으로 읽는다 — 원래 요청은 그대로·기다리지 않고 보낸다 */
+              var cl = input.clone(); pend = cl.text().then(function (t) { return claim(t); }, function () { return null; });
+            }
+          }
+        } catch (e) {}
         var pr = oFetch.apply(this, arguments);
-        if (c) { try { pr.then(function (res) { return res.clone().text().then(function (t) { done(c, okResp(res.status, t)); }); }, function () { done(c, false); }); } catch (e) {} }
+        if (c || pend) {
+          try {
+            var cp = pend || Promise.resolve(c);
+            pr.then(function (res) {
+              var rc = null; try { rc = res.clone(); } catch (e) {}                 /* 페이지가 본문을 읽기 전에 사본(우리 then 이 먼저 붙음) */
+              cp.then(function (cc) {
+                if (!cc) return; if (!rc) { done(cc, false); return; }
+                rc.text().then(function (t) { done(cc, okResp(res.status, t)); }, function () { done(cc, false); });
+              });
+            }, function () { cp.then(function (cc) { if (cc) done(cc, false); }); });
+          } catch (e) {}
+        }
         return pr;
       };
     }
@@ -187,5 +270,5 @@
   }
   if (document.readyState !== 'loading') hook(); else document.addEventListener('DOMContentLoaded', hook);
   /* 시험용 노출(동작에 영향 없음) */
-  window.__fitCartFix = { parseBody: parseBody, build: build, claim: claim, okResp: okResp };
+  window.__fitCartFix = { parseBody: parseBody, build: build, claim: claim, done: done, okResp: okResp, reqKey: reqKey };
 })();
