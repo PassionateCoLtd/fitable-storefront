@@ -602,3 +602,43 @@ test('3회차 ⑥회귀(실제 본문 형식) — 2번 담기 2건 · 지연 응
   assert.equal(r.events('add_to_cart2').length, 0, '실패');
   assert.equal(diags(r.w).length, 0);
 });
+
+/* ══ 4회차(11/1) 독립 리뷰 P1 2건: 품목코드 «전체 집합» 대조 · 요청으로 만든 시도의 이벤트 내용 ══════════════ */
+const PDP_BC = PDP_HTML.replace('</body>', `<table><tbody class="option_products">
+<tr class="option_product"><td><p class="product"><span>B</span></p><input class="option_box_id" name="item_code[]" value="P00000HE000B"><input class="quantity_opt" value="1"><input class="option_box_price" value="11500"></td></tr>
+<tr class="option_product"><td><p class="product"><span>C</span></p><input class="option_box_id" name="item_code[]" value="P00000HE000C"><input class="quantity_opt" value="1"><input class="option_box_price" value="11500"></td></tr>
+</tbody></table></body>`);
+const multiBody = (pno, items) => items.map(([q, c]) => `selected_item%5B%5D=${q}%7C%7C${c}`).join('&') + `&product_no=${pno}&product_name=Y&command=add&quantity=${items[0][0]}`;
+const sendBody = (w, b) => { const x = new w.XMLHttpRequest(); x.open('POST', '/exec/front/order/basket/'); x.send(b); };
+test('4회차 ①[B,C] 폴백 → 15초 안 클릭 없는 [B,D] 요청 → 2건 · ②[C,B] 순서만 바뀜 → 1건', async () => {
+  const r = loadAtc(PDP_BC);
+  r.fire('click', r.w.document.getElementById('cart')); await wait(150);
+  sendBody(r.w, multiBody(186, [[1, 'P00000HE000B'], [1, 'P00000HE000D']])); await wait(150);
+  assert.equal(r.events('add_to_cart2').length, 2, '[B,D]');
+  const s = loadAtc(PDP_BC);
+  s.fire('click', s.w.document.getElementById('cart')); await wait(150);
+  sendBody(s.w, multiBody(186, [[1, 'P00000HE000C'], [1, 'p00000he000b ']])); await wait(150);
+  assert.equal(s.events('add_to_cart2').length, 1, '[C,B]');
+});
+test('4회차 ③다른 상품 888·수량 2 요청 → 이벤트 상품 888·수량 2·금액 없음(value·price 빈칸) · id 따로', async () => {
+  const r = loadAtc();
+  r.fire('click', r.w.document.getElementById('cart')); await wait(150);
+  sendBody(r.w, multiBody(888, [[2, 'P00000ZZ000A']])); await wait(150);
+  const a = r.events('add_to_cart2'); assert.equal(a.length, 2);
+  const e = a[1].ecommerce;
+  assert.equal(e.items.length, 1); assert.equal(e.items[0].item_id, '888'); assert.equal(e.items[0].quantity, 2);
+  assert.equal(e.items[0].item_variant, 'P00000ZZ000A');
+  assert.ok(!('value' in e), 'value 없음'); assert.ok(!('price' in e.items[0]), 'price 없음');
+  assert.equal(e.currency, 'JPY'); assert.notEqual(a[0].event_id, a[1].event_id);
+  assert.equal(a[0].ecommerce.items[0].item_id, '186', '폴백 A 는 화면 상품 그대로');
+});
+test('4회차 ④같은 상품(186)인데 클릭 없는 요청 수량 3 → 수량 3 · 단가는 화면 금액 · value=단가×3', async () => {
+  const r = loadAtc();
+  sendBody(r.w, multiBody(186, [[3, 'P00000HE000B']])); await wait(150);
+  const a = r.events('add_to_cart2'); assert.equal(a.length, 1);
+  const e = a[0].ecommerce;
+  assert.equal(e.items[0].item_id, '186'); assert.equal(e.items[0].quantity, 3); assert.equal(e.items[0].price, 11500); assert.equal(e.value, 34500);
+  /* selected_item 없이 quantity 칸만 있어도 */
+  const s = loadAtc(); sendBody(s.w, 'product_no=186&command=add&quantity=3'); await wait(150);
+  assert.equal(s.events('add_to_cart2')[0].ecommerce.items[0].quantity, 3);
+});

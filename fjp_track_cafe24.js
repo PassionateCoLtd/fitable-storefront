@@ -627,7 +627,7 @@ function FJP_INAPP() {
         });
       }
       function reqIdent(url, body) {                             /* 담기 요청: 주소 뒤 ?… 와 본문(문자열·URLSearchParams·FormData)에서 읽는다 */
-        var kv = [], p = null, codes = [], qn = 0;
+        var kv = [], p = null, codes = [], qn = 0, its = [], qf = 0, nm = '';
         try {
           var u = String(url || ''), qi = u.indexOf('?'); if (qi > -1) qsPairs(u.slice(qi + 1).split('#')[0], kv);
           if (typeof body === 'string') qsPairs(body, kv);
@@ -636,20 +636,44 @@ function FJP_INAPP() {
         for (var i = 0; i < kv.length; i++) {
           var k = kv[i][0], v = String(kv[i][1] || '');
           if (k === 'product_no' && !p && /^\d+$/.test(v)) p = v;
-          else if (/^selected_item\[\d*\]$/.test(k)) { var m = v.split('||'); if (m.length > 1 && m[1]) { codes.push(m[1]); qn += num(m[0]) || 0; } }
+          else if (/^selected_item\[\d*\]$/.test(k)) { var m = v.split('||'); if (m.length > 1 && m[1]) { codes.push(m[1]); qn += num(m[0]) || 0; its.push({ code: m[1], q: num(m[0]) || 0 }); } }
+          else if (k === 'quantity' && !qf) qf = num(v) || 0;
+          else if (k === 'product_name' && !nm) nm = v.slice(0, 120);
         }
         if (!codes.length) for (var j = 0; j < kv.length; j++) if (/^option\d+$/.test(kv[j][0]) && ITEM_CODE.test(kv[j][1] || '')) codes.push(kv[j][1]);
-        return { pno: p, codes: codes, qty: qn };
+        return { pno: p, codes: codes, qty: qn, items: its, qf: qf, name: nm };
       }
-      function sameProd(a, r) {                                  /* r.pno 를 읽었을 때만 부른다 · 품목코드는 양쪽 다 있을 때만 비교(하나라도 겹치면 같음) */
+      function codeKey(l) {                                     /* 품목코드 집합 정규화: 공백 제거·대문자·중복 제거·정렬 */
+        var m = {}, o = [];
+        for (var i = 0; i < l.length; i++) { var c = String(l[i] == null ? '' : l[i]).replace(/\s+/g, '').toUpperCase(); if (c && !m[c]) { m[c] = 1; o.push(c); } }
+        return o.sort().join(',');
+      }
+      function sameProd(a, r) {                                  /* r.pno 를 읽었을 때만 부른다 · 품목코드는 양쪽 다 있을 때만 비교(정규화한 전체 집합이 같을 때만 같음 — 리뷰 P1) */
         if (!a.pno) return true;
         if (a.pno !== r.pno) return false;
-        if (a.codes && a.codes.length && r.codes.length) { for (var i = 0; i < r.codes.length; i++) if (a.codes.indexOf(r.codes[i]) > -1) return true; return false; }
+        if (a.codes && a.codes.length && r.codes.length) return codeKey(a.codes) === codeKey(r.codes);   /* [B,C]≠[B,D] · [B,C]=[C,B] */
         return true;
       }
+      function reqPayload(r) {            /* 리뷰 P1: 클릭 없이 요청으로 만든 시도의 이벤트 내용
+          · 화면 상품과 같은 상품번호 → 화면 금액(단가) 그대로, 수량은 요청 수량
+          · 다른 상품번호 → 요청에서 읽은 상품번호·품목코드·수량만. 금액은 확실히 모르니 value·price 를 넣지 않는다(틀린 금액보다 빈칸) */
+        var ps = r.items || [];
+        if (pno && String(pno) === r.pno) {
+          var ec = atcPayload(), its = ec.items;
+          if (ps.length && ps.length === its.length) { for (var i = 0; i < its.length; i++) if (ps[i].q > 0) its[i].quantity = ps[i].q; }
+          else if (its.length === 1 && (r.qty || r.qf)) its[0].quantity = r.qty || r.qf;
+          ec.value = sum(its);
+          return ec;
+        }
+        var out = [];
+        for (var j = 0; j < ps.length; j++) out.push({ item_id: r.pno, item_name: r.name || '', quantity: ps[j].q > 0 ? ps[j].q : 1, item_variant: ps[j].code });
+        if (!out.length) out.push({ item_id: r.pno, item_name: r.name || '', quantity: r.qf > 0 ? r.qf : 1, item_variant: '_' });
+        return { currency: CUR, items: out };
+      }
       function startAtc(r) {
-        var who = (r && r.pno) ? r : atcIdent();                 /* 클릭 없이 시작된 요청이면 그 요청의 상품번호로 적는다 */
-        var a = { id: newAtcId(), ec: atcPayload(), ts: Date.now(), stored: false, claimed: false, pno: who.pno, codes: who.codes || [], qty: who.qty };
+        var who = (r && r.pno) ? r : atcIdent();
+        var ec = (r && r.pno) ? reqPayload(r) : atcPayload();                 /* 클릭 없이 시작된 요청이면 그 요청의 상품번호로 적는다 */
+        var a = { id: newAtcId(), ec: ec, ts: Date.now(), stored: false, claimed: false, pno: who.pno, codes: who.codes || [], qty: who.qty };
         try { sessionStorage.setItem(PEND, JSON.stringify({ id: a.id, ec: a.ec, ts: a.ts })); a.stored = true; } catch (e) {}
         return a;
       }
