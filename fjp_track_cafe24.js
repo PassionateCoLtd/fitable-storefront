@@ -302,7 +302,7 @@ function FJP_INAPP() {
     /* 한국몰과 동일: ecommerce 를 먼저 null 로 밀어 직전 이벤트의 items 가 안 묻게 한다 */
     function push(eventType, ecommerceObj, extra) {
       try {
-        dl().push({ ecommerce: null });
+        dl().push({ ecommerce: null, event_id: undefined });   /* 2026-11-01: 담기 event_id 가 다음 이벤트에 묻지 않게 */
         var o = { event: eventType, ecommerce: ecommerceObj };
         if (extra) for (var k in extra) if (extra[k] !== undefined && extra[k] !== '') o[k] = extra[k];
         dl().push(o);
@@ -404,15 +404,31 @@ function FJP_INAPP() {
       return n > 0 ? n : 1;
     }
 
-    /* 직전 페이지에서 «담기»를 눌렀다면 여기서 한 번 보낸다(위 설명 참조) */
+    /* ── 담기 «이미 보냄» 상태 (2026-11-01, 대만 v5 tag19 이식) ──
+       예전: 같은 내용이면 2초 안에 한 번만(시간창) → 응답이 2초 넘게 늦으면 2번, 2초 안에 진짜로 2번 담으면 1번.
+       지금: 담기 시도 1건 = 식별자(id) 1개. 클릭 경로·담기 통신 경로·다음 화면이 같은 목록을 본다.
+       id 는 GA4 event_id · 메타 eventID 로 같이 넘긴다(태그 50 이 같은 신호·같은 id 로 보낸다). */
+    var PEND = 'fjp_atc_pending', K_ATC = 'fjp_atc_sent', atcMem = {};
+    function atcList() { try { return JSON.parse(sessionStorage.getItem(K_ATC) || '[]') || []; } catch (e) { return []; } }
+    function atcWasSent(id) { return !!atcMem[id] || atcList().indexOf(id) > -1; }
+    function atcMarkSent(id) { atcMem[id] = 1; try { var l = atcList(); l.push(id); sessionStorage.setItem(K_ATC, JSON.stringify(l.slice(-100))); } catch (e) {} }
+    function clearPend(id) { try { var r = sessionStorage.getItem(PEND); if (r && (!id || (JSON.parse(r) || {}).id === id)) sessionStorage.removeItem(PEND); } catch (e) { try { sessionStorage.removeItem(PEND); } catch (e2) {} } }
+    function newAtcId() { return 'jp_atc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+    function sendAtc(id, ec) {
+      if (!id || !ec || atcWasSent(id)) return false;
+      atcMarkSent(id); clearPend(id);
+      var ex = {}, at = attr(); for (var k in at) if (Object.prototype.hasOwnProperty.call(at, k)) ex[k] = at[k];
+      ex.event_id = id;
+      push('add_to_cart2', ec, ex);
+      return true;
+    }
+    /* 직전 페이지에서 «담기»를 눌렀는데 그 화면에서 못 보냈다면 여기서 한 번 보낸다(폼 전송형·화면 이동 대비) */
     try {
-      var _pend = sessionStorage.getItem('fjp_atc_pending');
+      var _pend = sessionStorage.getItem(PEND);
       if (_pend) {
-        sessionStorage.removeItem('fjp_atc_pending');
+        sessionStorage.removeItem(PEND);
         var _o = JSON.parse(_pend);
-        if (_o && _o.ec && Date.now() - (_o.ts || 0) < 60000) {
-          push('add_to_cart2', _o.ec, (window.__fjpAttr && window.__fjpAttr()) || {});
-        }
+        if (_o && _o.ec && Date.now() - (_o.ts || 0) < 60000) sendAtc(_o.id || newAtcId(), _o.ec);   /* id 없는 옛 보류분도 1번 */
       }
     } catch (e) {}
 
@@ -492,18 +508,20 @@ function FJP_INAPP() {
                      '_')];
       push('view_item2', { value: sum(vi), currency: CUR, items: vi }, attr());
 
-      /* ── add_to_cart : 카페24 담기 ajax(/exec/front/order/basket/) 응답을 훅 ──
+      /* ── add_to_cart : 「カートに入れる」 좌클릭 + 카페24 담기 통신(/exec/front/order/basket/) 훅 ──
          🔴 한국몰 3중 발화 재발 방지 3겹:
             ① 「今すぐ購入」(product_submit(1,…)) 클릭 뒤 1.5초는 담기로 세지 않는다
-            ② 같은 페이로드는 2초 안에 한 번만
-            ③ XHR·fetch 를 각각 한 번만 감싼다(__fjpHooked) */
-      var payFlag = 0, lastSig = '', lastAt = 0;
+            ② (2026-11-01) 2초 시간창 대신 «담기 시도 1건 = 식별자 1개» — 클릭이 시도를 열고 그 뒤 첫 담기 통신이
+               같은 시도에 붙는다. 통신이 붙으면 통신이 끝날 때 보낸다(응답이 3초 넘게 늦어도 1번),
+               통신이 없으면 1.2초 뒤 클릭 쪽이 보낸다. 서로 다른 담기 2번 = 2건.
+            ③ XHR·fetch 를 각각 한 번만 감싼다(__fjpAtcHooked) */
+      var payFlag = 0;
       document.addEventListener('mousedown', markPay, true);
       document.addEventListener('touchstart', markPay, true);
 
       /* 🔑 일본몰 「カートに入れる」는 ajax 가 아니라 «폼 전송»이라 페이지가 통째로 넘어간다.
          전송이 잘리는 문제는 «담을 내용을 적어두고 다음 페이지에서 보내는» 방식으로 이미 해결했다
-         (아래 fireAtc). 그러므로 발화 시점을 mousedown/touchstart 로 당길 이유가 없다 —
+         (아래 startAtc 의 보류분). 그러므로 발화 시점을 mousedown/touchstart 로 당길 이유가 없다 —
          🔴 오히려 화면을 누른 채 스크롤하거나 우클릭·드래그로 빠져나가도 담기로 세는
             «유령 담기»가 생긴다(2026-09-06 코드리뷰). → «진짜 좌클릭»만 인정한다. */
       function yenAmt(sv) {
@@ -539,7 +557,7 @@ function FJP_INAPP() {
               if (sel && sel.selectedIndex <= 0) return;
             }
           }
-          fireAtc();
+          onCartClick();
         } catch (err) {}
       }
       document.addEventListener('click', maybeAtc, true);
@@ -558,7 +576,6 @@ function FJP_INAPP() {
          어떤 땐 사라짐). → 담을 «내용»만 브라우저에 적어두고, «다음 페이지가 열린 뒤»에
          한 번만 보낸다. 페이지가 안 넘어가는 스킨(ajax)이면 1.2초 뒤 그 자리에서 보낸다.
          어느 쪽이든 표식을 지우고 보내므로 두 번 세지 않는다. */
-      var PEND = 'fjp_atc_pending';
       function atcPayload() {
         var items = [item(pno,
                           (typeof window.product_name !== 'undefined' ? window.product_name : document.title),
@@ -569,22 +586,39 @@ function FJP_INAPP() {
         applyOptionRows(items);
         return { value: sum(items), currency: CUR, items: items };
       }
-      function fireAtc() {
+      var openAtc = null;
+      function startAtc() {
+        var a = { id: newAtcId(), ec: atcPayload(), ts: Date.now(), stored: false, claimed: false };
+        try { sessionStorage.setItem(PEND, JSON.stringify({ id: a.id, ec: a.ec, ts: a.ts })); a.stored = true; } catch (e) {}
+        return a;
+      }
+      function onCartClick() {
         try {
           if (payFlag && Date.now() - payFlag < 1500) return;   /* 즉시구매는 begin_checkout 이 잡는다 */
-          var ec = atcPayload();
-          var sig = JSON.stringify(ec.items);
-          var now = Date.now();
-          if (sig === lastSig && now - lastAt < 2000) return;    /* 같은 담기 중복 차단 */
-          lastSig = sig; lastAt = now;
-          try { sessionStorage.setItem(PEND, JSON.stringify({ ec: ec, ts: now })); } catch (e) {}
-          setTimeout(function () {                               /* 페이지가 안 넘어갔으면 여기서 발사 */
-            try {
-              var raw = sessionStorage.getItem(PEND); if (!raw) return;
-              sessionStorage.removeItem(PEND);
-              push('add_to_cart2', JSON.parse(raw).ec, attr());
-            } catch (e) {}
+          var a = startAtc(); openAtc = a;
+          setTimeout(function () {                               /* 담기 통신이 안 붙었으면(폼 전송·통신 없는 스킨) 여기서 발사 */
+            try { if (!a.claimed) { sendAtc(a.id, a.ec); if (openAtc === a) openAtc = null; } } catch (e) {}   /* 통신에 붙은 시도는 통신 결과로만(실패면 0건) */
           }, 1200);
+        } catch (e) {}
+      }
+      /* 담기 통신이 시작될 때: 열린 시도에 붙인다. 이미 보낸 시도는 재사용하지 않는다(새 id) */
+      function claimAtc() {
+        var a = openAtc; openAtc = null;
+        if (a && atcWasSent(a.id)) a = null;
+        if (!a && !(payFlag && Date.now() - payFlag < 1500)) a = startAtc();   /* 클릭을 못 잡은 담기(키보드 등) */
+        if (a) a.claimed = true;
+        return a;
+      }
+      /* 담기 통신이 끝났을 때: 성공이면 보낸다. 0.4초 안에 화면을 떠나면 보내지 않고, 남겨 둔 보류분(같은 id)을 다음 화면이 1번 보낸다 */
+      function finishAtc(a, ok) {
+        try {
+          if (!ok) { clearPend(a.id); return; }
+          if (!a.stored) { sendAtc(a.id, a.ec); return; }      /* 보류분을 못 남겼으면(저장소 막힘) 기다리지 않고 지금 보낸다 */
+          var leaving = false, onLeave = function () { leaving = true; };
+          window.addEventListener('beforeunload', onLeave, true); window.addEventListener('pagehide', onLeave, true);
+          setTimeout(function () {
+            try { window.removeEventListener('beforeunload', onLeave, true); window.removeEventListener('pagehide', onLeave, true); if (!leaving) sendAtc(a.id, a.ec); } catch (e) {}
+          }, 400);
         } catch (e) {}
       }
       function optionVariant() {
@@ -624,7 +658,36 @@ function FJP_INAPP() {
         });
         items.length = 0; Array.prototype.push.apply(items, out);
       }
-      hookBasketXhr(fireAtc);
+      /* 담기 통신 훅 — 보낼 때(send/fetch 호출) 시도에 붙이고, 끝날 때 성공이면 보낸다. XHR·fetch 각각 한 번만 감싼다 */
+      try {
+        var HIT_ATC = /\/exec\/front\/order\/basket\//;
+        if (!XMLHttpRequest.prototype.__fjpAtcHooked) {
+          XMLHttpRequest.prototype.__fjpAtcHooked = 1;
+          var xopen = XMLHttpRequest.prototype.open, xsend = XMLHttpRequest.prototype.send;
+          XMLHttpRequest.prototype.open = function (m, u) { try { this.__fjpUrl = String(u || ''); } catch (e) {} return xopen.apply(this, arguments); };
+          XMLHttpRequest.prototype.send = function () {
+            try {
+              var xhr = this;
+              if (HIT_ATC.test(xhr.__fjpUrl || '')) {
+                var a = claimAtc();
+                if (a) xhr.addEventListener('loadend', function () { finishAtc(a, xhr.status >= 200 && xhr.status < 400); });
+              }
+            } catch (e) {}
+            return xsend.apply(this, arguments);
+          };
+        }
+        if (window.fetch && !window.fetch.__fjpAtcHooked) {
+          var ofetch = window.fetch;
+          var nfetch = function (input) {
+            var a = null;
+            try { var u = (typeof input === 'string') ? input : (input && input.url) || ''; if (HIT_ATC.test(u)) a = claimAtc(); } catch (e) {}
+            var p = ofetch.apply(this, arguments);
+            if (a) { try { p.then(function (r) { finishAtc(a, !!(r && r.status >= 200 && r.status < 400)); }, function () { finishAtc(a, false); }); } catch (e) {} }
+            return p;
+          };
+          nfetch.__fjpAtcHooked = 1; window.fetch = nfetch;
+        }
+      } catch (e) {}
     }
 
     /* ── view_cart / remove_from_cart ───────────────────────────── */
@@ -892,7 +955,41 @@ function FJP_INAPP() {
          주문번호는 주소·본문에도 있어서 찾아졌지만(그래서 메타는 발화) 카페24 전역의
          order_product 만 그 시점에 비어 있었다.
          → 채워질 때까지 짧게 기다렸다가 «한 번만» 보낸다(whenReady 주석 참조). */
-      var K_SENT = 'fjp_purchase_sent';
+      /* 구매 중복 방지 목록: 주문번호당 1회. 2026-11-01: 최근 500건·90일(예전 20건), 옛 문자열 목록 이어받기.
+         보내기 직전 «주문번호 잠금»으로 두 탭이 동시에 열려도 한 탭만 보낸다(대만 v6 와 같은 방식).
+         www↔m 다른 출처끼리는 GA4 transaction_id 중복 제거에 맡긴다. */
+      var K_SENT = 'fjp_purchase_sent', KEEP_N = 500, KEEP_MS = 90 * 864e5;
+      function readSent() {
+        var raw = [], now = Date.now(), out = [];
+        try { raw = JSON.parse(localStorage.getItem(K_SENT) || '[]') || []; } catch (e) { raw = []; }
+        for (var i = 0; i < raw.length; i++) {
+          var x = raw[i]; if (typeof x === 'string') x = { id: x, ts: now, st: 'sent' };   /* 옛 목록(문자열 20개) 이어받기 */
+          if (x && x.id && now - (x.ts || 0) < KEEP_MS) out.push(x);
+        }
+        return out.slice(-KEEP_N);
+      }
+      function writeSent(l) { try { localStorage.setItem(K_SENT, JSON.stringify(l.slice(-KEEP_N))); } catch (e) {} }
+      function sentHas(l, id) { for (var i = 0; i < l.length; i++) if (l[i].id === id) return true; return false; }
+      /* 주문번호 단위 «보내는 중» 잠금. Web Locks(navigator.locks) 가 있으면 그것으로, 없으면 localStorage 짧은 잠금
+         (소유자 표 + 3초, 쓰고 나서 다시 읽어 내 것일 때만). 남이 잡고 있으면 3초 뒤 다시 본다(그 사이 보냈으면 목록에서 걸러짐). */
+      function orderLock(name, fn) {
+        try { if (navigator.locks && navigator.locks.request) { navigator.locks.request(name, function () { try { fn(); } catch (e) {} }); return; } } catch (e) {}
+        var K = name, me = Math.random().toString(36).slice(2) + Date.now().toString(36), tries = 0;
+        function retry() { if (++tries <= 3) setTimeout(attempt, 3100); }
+        function attempt() {
+          var cur = null, now = Date.now();
+          try { cur = JSON.parse(localStorage.getItem(K) || 'null'); } catch (e) { cur = null; }
+          if (cur && cur.o !== me && now - (cur.t || 0) < 3000) { retry(); return; }
+          try { localStorage.setItem(K, JSON.stringify({ o: me, t: now })); } catch (e) { try { fn(); } catch (e2) {} return; }   /* 저장소가 막힌 브라우저 = 예전과 같이 진행 */
+          setTimeout(function () {
+            var c2 = null; try { c2 = JSON.parse(localStorage.getItem(K) || 'null'); } catch (e) {}
+            if (!c2 || c2.o !== me) { retry(); return; }
+            try { fn(); } catch (e) {}
+            try { localStorage.removeItem(K); } catch (e) {}
+          }, 60 + Math.floor(Math.random() * 60));
+        }
+        attempt();
+      }
 
       function orderCtx() {
         var E = (window.CAFE24 && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA) ||
@@ -914,10 +1011,7 @@ function FJP_INAPP() {
            — 건수·금액이라도 확보하는 쪽이 통째로 놓치는 것보다 낫다(2026-09-07 1차 수정 원칙). */
         if (!(op && op.length) && !force) return false;
 
-        /* 중복 방지는 «실제로 보내는 시점»에만 기록한다 */
-        var sentList = [];
-        try { sentList = JSON.parse(localStorage.getItem(K_SENT) || '[]') || []; } catch (e) { sentList = []; }
-        if (sentList.indexOf(ctx.oid) > -1) return true;   /* 이미 보냈다 → 재시도 중단 */
+        if (sentHas(readSent(), ctx.oid)) return true;     /* 이미 보냈다 → 재시도 중단(잠금 안에서 한 번 더 본다) */
 
         /* 🔴 옵션 문자열을 «순서»로 갖다 붙이면 옵션 없는 상품이 섞였을 때 한 칸씩 밀린다.
            → 상품 목록과 개수가 «정확히» 같을 때만 쓰고, 아니면 비워 둔다(틀린 옵션보다 빈 값이 낫다). */
@@ -959,31 +1053,44 @@ function FJP_INAPP() {
               쿠폰·배송비만큼 어긋날 수 있는데 정상이다 — 할인은 주문 단위로 붙기 때문이다.
            ⚠️ 한국몰은 아직 «상품합계»를 쓴다(같은 결함). 두 나라 정의가 갈리므로 GA4 매출을
               한·일 비교에 쓸 땐 주의. 한국은 누적이 커서 정의 변경에 대표 판단이 필요 — 별건. */
-        function sane(n, base) {
-          n = parseFloat(n); if (!isFinite(n) || n <= 0) return 0;
-          if (base > 0 && (n < base * 0.1 || n > base * 3)) return 0;   /* 엉뚱한 필드 방어 */
-          return n;
+        /* 2026-11-01 수정(대만 v3 와 같은 정책):
+           · «값 없음»(undefined·null·빈칸·숫자 아님)과 «0엔»을 가른다. 포인트 전액 결제면 0 을 그대로 보낸다.
+           · 하한(상품합계 10% 미만 거부)은 없앴다 — 포인트·쿠폰으로 거의 다 낸 주문이 할인 전 값으로 부풀었다.
+             상한(상품합계 3배 초과 = 엉뚱한 필드)만 남긴다.
+           · 순서: ①실결제 필드 payed_amount ②화면 실결제총액 「お支払(い)総額·お支払(い)合計·ご請求」
+                   ③뜻이 애매한 총액 필드(0 은 안 믿음) ④화면 「合計金額」(0 은 안 믿음) ⑤상품합계
+           · ①이 0 인데 화면 결제총액이 0 보다 크면 화면을 따른다(입금 전 주문이 0 으로 오는 경우 대비). */
+        function amt(v) {
+          if (v === undefined || v === null) return null;
+          var s1 = String(v).replace(/[\s,]/g, '').replace(/^[¥￥]/, '').replace(/(?:円|JPY)$/i, '');
+          if (s1 === '') return null;
+          var n = Number(s1); return (isFinite(n) && n >= 0) ? n : null;
         }
         var itemsTotal = sum(pi);
-        var val = 0, shipFee = 0;
-        /* ① 카페24 전역의 결제금액 — 화면마다 이름이 달라 후보를 넓게 잡는다 */
-        var PAY_KEYS = ['payment_amount', 'total_payment_amount', 'actual_payment_amount',
-                        'settle_price', 'order_amount', 'total_price', 'pay_amount',
-                        'order_price_amount', 'total_order_amount'];
-        for (var ki = 0; ki < PAY_KEYS.length && !val; ki++) {
-          try { val = sane(ctx.E[PAY_KEYS[ki]], itemsTotal); } catch (e) {}
-        }
-        /* ② 화면의 «결제 총액» — 라벨이 붙은 것만 쓴다(아무 ¥ 숫자나 집으면 상품가를 총액으로 오인) */
+        var val = null, shipFee = 0;
+        function fits(n) { return n !== null && !(itemsTotal > 0 && n > itemsTotal * 3); }
         var bt = (document.body && document.body.innerText) || '';
-        if (!val) {
-          var vm = bt.match(/お支払い?総額[^0-9]{0,12}([0-9][0-9,]*)/)
-                || bt.match(/お支払い?合計[^0-9]{0,12}([0-9][0-9,]*)/)
-                || bt.match(/ご請求[^0-9]{0,12}([0-9][0-9,]*)/)
-                || bt.match(/合計金額[^0-9]{0,12}([0-9][0-9,]*)/);
-          if (vm) val = sane(vm[1].replace(/,/g, ''), itemsTotal);
+        var scr = null, vm = bt.match(/お支払い?総額[^0-9]{0,12}([0-9][0-9,]*)/)
+                          || bt.match(/お支払い?合計[^0-9]{0,12}([0-9][0-9,]*)/)
+                          || bt.match(/ご請求[^0-9]{0,12}([0-9][0-9,]*)/);
+        if (vm) { scr = amt(vm[1]); if (!fits(scr)) scr = null; }
+        var VERIFIED = ['payed_amount'];
+        for (var vk = 0; vk < VERIFIED.length && val === null; vk++) {
+          var a1 = null; try { a1 = amt(ctx.E[VERIFIED[vk]]); } catch (e) {}
+          if (fits(a1)) val = (a1 === 0 && scr !== null && scr > 0) ? scr : a1;
         }
-        /* ③ 그래도 없으면 상품합계(할인 전) — 없는 것보다는 낫다 */
-        if (!val) val = itemsTotal;
+        if (val === null && scr !== null) val = scr;
+        if (val === null) {
+          var PAY_KEYS = ['payment_amount', 'total_payment_amount', 'actual_payment_amount',
+                          'settle_price', 'order_amount', 'total_price', 'pay_amount',
+                          'order_price_amount', 'total_order_amount'];
+          for (var ki = 0; ki < PAY_KEYS.length && val === null; ki++) {
+            var a2 = null; try { a2 = amt(ctx.E[PAY_KEYS[ki]]); } catch (e) {}
+            if (a2 !== null && a2 > 0 && fits(a2)) val = a2;
+          }
+        }
+        if (val === null) { var vm2 = bt.match(/合計金額[^0-9]{0,12}([0-9][0-9,]*)/); if (vm2) { var a3 = amt(vm2[1]); if (a3 !== null && a3 > 0 && fits(a3)) val = a3; } }
+        if (val === null && itemsTotal > 0) val = itemsTotal;   /* 할인 전 상품합계 — 없는 것보다는 낫다 */
         /* 배송비(있으면 별도 파라미터로) */
         try {
           for (var si = 0; si < 3 && !shipFee; si++) {
@@ -993,14 +1100,18 @@ function FJP_INAPP() {
         } catch (e) {}
 
         var ec = { transaction_id: ctx.oid, currency: CUR, items: pi };
-        if (val) ec.value = val;              /* 못 구하면 키 자체를 안 넣는다(0 금지) */
+        if (val !== null) ec.value = val;     /* 0 엔도 그대로 보낸다. 아무 값도 못 구하면 키를 안 넣는다 */
         if (shipFee > 0) ec.shipping = shipFee;
         if (pt) ec.payment_type = pt;
-        push('purchase2', ec, attr());
-        try {
-          sentList.push(ctx.oid);
-          localStorage.setItem(K_SENT, JSON.stringify(sentList.slice(-20)));
-        } catch (e) {}
+        var oid = ctx.oid, ex = attr();
+        var sendNow = function (name, fn) { fn(); };            /* 화면이 닫히는 중이면 비동기 잠금이 안 끝날 수 있다 → 바로 */
+        (document.visibilityState === 'hidden' ? sendNow : orderLock)('fjp_plock_' + oid, function () {
+          var l = readSent();
+          if (sentHas(l, oid)) return;                         /* 다른 탭이 먼저 보냈다 */
+          l.push({ id: oid, ts: Date.now(), st: 'sending' }); writeSent(l);   /* 보내기 «전에» 표시 */
+          push('purchase2', ec, ex);
+          try { var l2 = readSent(); for (var i2 = 0; i2 < l2.length; i2++) if (l2[i2].id === oid) l2[i2].st = 'sent'; writeSent(l2); } catch (e) {}
+        });
         return true;
       }
 

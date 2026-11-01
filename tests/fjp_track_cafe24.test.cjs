@@ -265,3 +265,175 @@ test('utm_campaign·utm_content 의 메일 주소 모양은 지우고 광고 ID 
   assert.equal(attr().lt_campaign, '24314931751');
   assert.ok(!attr().lt_content.includes('@'));
 });
+
+/* ══ 2026-11-01 계측 결함 수정(대만 v5·v6 이식) ══════════════════════ */
+const PDP_HTML = `<!doctype html><body><select id="product_option_id1"><option>-</option><option selected>ホワイト</option></select>
+<div id="totalPrice"><span class="total">¥11,500</span></div><input id="quantity" value="1">
+<a href="#none" class="cart_btn" id="cart">カートに入れる</a></body>`;
+/* 담기 통신 가짜: 지연(ms, 실제 시간)을 주고 끝나면 loadend */
+function fakeXhr(win, delayMs = 0, status = 200) {
+  const realST = setTimeout;
+  win.XMLHttpRequest = class { constructor() { this.l = {}; this.status = 0; } open(m, u) { this.u = u; }
+    addEventListener(t, f) { (this.l[t] = this.l[t] || []).push(f); }
+    send() { realST(() => { this.status = status; (this.l.loadend || []).forEach(f => f()); }, delayMs); } };
+}
+const basketXhr = (w) => { const x = new w.XMLHttpRequest(); x.open('POST', '/exec/front/order/basket/'); x.send('p=186'); };
+const PDP_URL = 'https://fitablejp.com/product/detail.html?product_no=186';
+
+test('담기 ①서로 다른 담기 2번 → add_to_cart2 2건 · event_id 2개 다름', async () => {
+  const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500; fakeXhr(win, 0); } });
+  const btn = w.document.getElementById('cart');
+  fire('click', btn); basketXhr(w); await wait(150);
+  fire('click', btn); basketXhr(w); await wait(150);
+  const a = events('add_to_cart2');
+  assert.equal(a.length, 2);
+  assert.ok(/^jp_atc_/.test(a[0].event_id) && a[0].event_id !== a[1].event_id);
+});
+
+test('담기 ②응답이 늦어도(클릭 폴백 시간보다 길게) 1건', async () => {
+  const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500; fakeXhr(win, 120); } });
+  fire('click', w.document.getElementById('cart')); basketXhr(w); await wait(300);
+  assert.equal(events('add_to_cart2').length, 1);
+});
+
+test('담기 ③통신 없는 클릭 폴백 뒤 별도 담기 통신 → 2건(폴백 뒤 열린 시도 비움)', async () => {
+  const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500; fakeXhr(win, 0); } });
+  fire('click', w.document.getElementById('cart')); await wait(150);
+  basketXhr(w); await wait(150);
+  const a = events('add_to_cart2');
+  assert.equal(a.length, 2); assert.notEqual(a[0].event_id, a[1].event_id);
+});
+
+test('담기 실패 응답이면 안 보낸다 · 다음 이벤트에 event_id 가 묻지 않는다', async () => {
+  const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500; fakeXhr(win, 120, 500); } });
+  fire('click', w.document.getElementById('cart')); basketXhr(w); await wait(300);
+  assert.equal(events('add_to_cart2').length, 0);
+  const resets = w.dataLayer.filter(e => e && e.ecommerce === null && 'event_id' in e);
+  assert.ok(resets.length >= 1);
+});
+
+test('담기 직후 화면 이동 → 다음 화면이 같은 id 로 1번만(옛 id 없는 보류분도 1번)', async () => {
+  const pend = JSON.stringify({ id: 'jp_atc_test1', ec: { value: 11500, currency: 'JPY', items: [] }, ts: Date.now() });
+  const r1 = load({ url: 'https://fitablejp.com/order/basket.html', setup: (win) => win.sessionStorage.setItem('fjp_atc_pending', pend) });
+  await wait();
+  const a = r1.events('add_to_cart2');
+  assert.equal(a.length, 1); assert.equal(a[0].event_id, 'jp_atc_test1');
+  const old = JSON.stringify({ ec: { value: 1, currency: 'JPY', items: [] }, ts: Date.now() });
+  const r2 = load({ url: 'https://fitablejp.com/order/basket.html', setup: (win) => win.sessionStorage.setItem('fjp_atc_pending', old) });
+  await wait();
+  assert.equal(r2.events('add_to_cart2').length, 1);
+});
+
+/* ── 구매 금액 ── */
+function orderSetup(E, screen) {
+  return (win) => {
+    /* jsdom 은 innerText 가 없다 → 화면 글자 읽기 시험용으로 textContent 를 돌려준다 */
+    if (!('innerText' in win.HTMLElement.prototype)) Object.defineProperty(win.HTMLElement.prototype, 'innerText', { get() { return this.textContent; }, configurable: true });
+    win.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA = Object.assign({ order_id: E.oid,
+      order_product: [{ product_no: 186, product_name: 'ワイド', quantity: 1, product_price: '11500' }] }, E.f);
+    if (screen) win.document.body.insertAdjacentHTML('beforeend', `<p>お支払い総額 ¥${screen}</p>`);
+  };
+}
+for (const [name, f, screen, want] of [
+  ['①정상', { payed_amount: '11500' }, '11,500', 11500],
+  ['②payed 소액(포인트)', { payed_amount: '300' }, '11,200', 300],
+  ['③payed 0 + 화면 0(포인트 전액)', { payed_amount: '0' }, '0', 0],
+  ['④payed 0 + 화면 > 0(입금 전)', { payed_amount: '0' }, '11,500', 11500],
+  ['⑤payed 없음 → 화면', {}, '11,000', 11000],
+  ['⑥payed 없음·화면 없음·애매 필드 0 → 상품합계', { payment_amount: '0' }, null, 11500],
+]) {
+  test(`구매 금액 ${name} → ${want}`, async () => {
+    const oid = '20991231-00001' + String(want).slice(0, 2);
+    const url = `https://fitablejp.com/order/order_result.html?order_id=${oid}`;
+    const r = load({ url, setup: orderSetup({ oid, f }, screen) });
+    await wait(200);
+    const p = r.events('purchase2');
+    assert.equal(p.length, 1); assert.equal(p[0].ecommerce.value, want);
+    const sent = r.w.localStorage.getItem('fjp_purchase_sent');
+    const r2 = load({ url, setup: (win) => { orderSetup({ oid, f }, screen)(win); win.localStorage.setItem('fjp_purchase_sent', sent); } });
+    await wait(200);
+    assert.equal(r2.events('purchase2').length, 0, '새로고침해도 다시 세지 않는다');
+  });
+}
+
+test('구매 중복 목록: 옛 문자열 목록 이어받기 · 500건 제한 · 옛 목록에 있던 주문은 안 보냄', async () => {
+  const old = Array.from({ length: 700 }, (_, i) => 'X' + i).concat(['20991231-0000777']);
+  const r = load({ url: 'https://fitablejp.com/order/order_result.html?order_id=20991231-0000777',
+    setup: (win) => { orderSetup({ oid: '20991231-0000777', f: { payed_amount: '1' } })(win); win.localStorage.setItem('fjp_purchase_sent', JSON.stringify(old)); } });
+  await wait(200);
+  assert.equal(r.events('purchase2').length, 0);
+  const r2 = load({ url: 'https://fitablejp.com/order/order_result.html?order_id=20991231-0000778',
+    setup: (win) => { orderSetup({ oid: '20991231-0000778', f: { payed_amount: '1' } })(win); win.localStorage.setItem('fjp_purchase_sent', JSON.stringify(old)); } });
+  await wait(200);
+  assert.equal(r2.events('purchase2').length, 1);
+  const l = JSON.parse(r2.w.localStorage.getItem('fjp_purchase_sent'));
+  assert.equal(l.length, 500); assert.equal(l[l.length - 1].id, '20991231-0000778'); assert.equal(l[l.length - 1].st, 'sent');
+});
+
+/* ── 두 탭 동시 주문완료 ── */
+function sharedStore() {
+  const m = new Map();
+  return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k), get length() { return m.size; }, key: i => [...m.keys()][i] || null, clear: () => m.clear() };
+}
+for (const mode of ['localStorage 잠금', 'Web Locks']) {
+  test(`두 탭이 같은 주문완료 화면을 동시에 열어도 purchase2 1건 (${mode})`, async () => {
+    const ls = sharedStore(); const chain = {};
+    const locks = { request: (n, cb) => (chain[n] = (chain[n] || Promise.resolve()).then(() => cb())) };
+    const oid = '20991231-0000888';
+    const setup = (win) => {
+      Object.defineProperty(win, 'localStorage', { value: ls, configurable: true });
+      if (mode === 'Web Locks') Object.defineProperty(win.navigator, 'locks', { value: locks, configurable: true });
+      orderSetup({ oid, f: { payed_amount: '11500' } })(win);
+    };
+    const url = `https://fitablejp.com/order/order_result.html?order_id=${oid}`;
+    const a = load({ url, setup }); const b = load({ url, setup });
+    await wait(400);
+    assert.equal(a.events('purchase2').length + b.events('purchase2').length, 1);
+  });
+}
+
+test('localStorage 잠금: 다른 탭이 잡고 있으면 기다렸다가 그 탭이 보낸 주문은 안 보냄 · 주인 잃은 잠금(3초 지남)은 넘겨받아 1번', async () => {
+  const oid = '20991231-0000999', url = `https://fitablejp.com/order/order_result.html?order_id=${oid}`;
+  const ls = sharedStore();
+  ls.setItem('fjp_plock_' + oid, JSON.stringify({ o: 'other', t: Date.now() }));
+  const r = load({ url, setup: (win) => { Object.defineProperty(win, 'localStorage', { value: ls, configurable: true }); orderSetup({ oid, f: { payed_amount: '1' } })(win); } });
+  await wait(15);
+  ls.setItem('fjp_purchase_sent', JSON.stringify([{ id: oid, ts: Date.now(), st: 'sent' }])); ls.removeItem('fjp_plock_' + oid);
+  await wait(300);
+  assert.equal(r.events('purchase2').length, 0);
+  const ls2 = sharedStore();
+  ls2.setItem('fjp_plock_' + oid, JSON.stringify({ o: 'dead', t: Date.now() - 5000 }));
+  const r2 = load({ url, setup: (win) => { Object.defineProperty(win, 'localStorage', { value: ls2, configurable: true }); orderSetup({ oid, f: { payed_amount: '1' } })(win); } });
+  await wait(300);
+  assert.equal(r2.events('purchase2').length, 1);
+  assert.equal(ls2.getItem('fjp_plock_' + oid), null, '보낸 뒤 잠금을 푼다');
+});
+
+/* ── 2026-11-01 독립 리뷰(Codex) 지적 회귀 ── */
+test('담기 통신이 폴백 전에 실패(500)하면 폴백도 안 보낸다 → 0건', async () => {
+  const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500; fakeXhr(win, 2, 500); } });
+  fire('click', w.document.getElementById('cart')); basketXhr(w); await wait(300);
+  assert.equal(events('add_to_cart2').length, 0);
+});
+test('담기 fetch 통신도 붙는다: 늦은 성공 1건 · 실패 0건', async () => {
+  for (const [st, want] of [[200, 1], [500, 0]]) {
+    const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500;
+      win.fetch = () => new Promise(r => setTimeout(() => r({ status: st }), 120)); } });
+    fire('click', w.document.getElementById('cart')); w.fetch('/exec/front/order/basket/'); await wait(300);
+    assert.equal(events('add_to_cart2').length, want, 'status ' + st);
+  }
+});
+test('세션 저장소가 막혀 보류분을 못 남기면 성공 즉시 보낸다(이동해도 안 잃음)', async () => {
+  const { events, fire, w } = load({ url: PDP_URL, html: PDP_HTML, setup: (win) => { win.product_price = 11500; fakeXhr(win, 0);
+    Object.defineProperty(win, 'sessionStorage', { configurable: true, value: { getItem: () => null, removeItem: () => {}, setItem: () => { throw new Error('blocked'); } } }); } });
+  fire('click', w.document.getElementById('cart')); basketXhr(w); await wait(5);
+  assert.equal(events('add_to_cart2').length, 1);
+});
+test('화면이 닫히는 중(hidden)의 마지막 구매 전송은 잠금을 기다리지 않고 바로 1건', async () => {
+  const oid = '20991231-0000555';
+  const r = load({ url: `https://fitablejp.com/order/order_result.html?order_id=${oid}`, setup: (win) => {
+    Object.defineProperty(win.document, 'visibilityState', { get: () => 'hidden', configurable: true });
+    orderSetup({ oid, f: { payed_amount: '1' } })(win); } });
+  await wait(30);
+  assert.equal(r.events('purchase2').length, 1);
+});
