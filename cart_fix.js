@@ -1,4 +1,4 @@
-/* cart_fix.js v2 (2026-11-01) — 한국몰 상세 화면 «담기 1번 = add_to_cart 1건».
+/* cart_fix.js v4 (2026-11-01) — 한국몰 상세 화면 «담기 1번 = add_to_cart 1건».
    v1(2026-06-05)은 «장바구니» 클릭 순간 gtag('event','add_to_cart') 를 직접 쐈고, GTM 태그 33 도
    야무진초아 add_to_cart2(담기 통신 응답) 로 한 번 더 쏴서 담기 1번에 2건이 나갔다(11/1 실측).
    두 경로 다 수량·금액이 틀렸다: v1 은 숨은 기본 수량칸(늘 1)·추가구성상품 빠짐,
@@ -18,9 +18,17 @@
      · XHR 재사용: 요청마다 붙인 리스너는 끝나면 뗀다. 완료는 «readyState 4 + 같은 세대»일 때 한 번만.
      · 성공은 «JSON 이고 result 가 0 이상인 숫자»일 때만(카페24 basket_result_action 의 aData.result >= 0 과 같음).
        JSON 이 아니거나 result 가 없으면 실패로 본다. responseType=json 이면 response 를 읽는다.
+   v4(2026-11-01 2회차 리뷰 수정):
+     · 새로 본 「장바구니」 클릭 시도를 «15초 안 같은 요청» 묶기보다 먼저 본다 → 화면과 다른 상품을 15초 안에 두 번 클릭해 담아도 2건(ID 2개).
+       클릭 바로 뒤 첫 다른 상품 요청은 요청 기준 ID(클릭 시도는 화면 상품 요청 몫으로 남김, v3 R4 그대로), 같은 요청이 새 클릭 뒤 또 오면 그 클릭 ID.
+     · 3회차 리뷰: 클릭 시도를 지나간 다른 상품 요청은 마지막 하나가 아니라 전부 기억(B→C→B 되풀이가 새 담기로 세지던 문제).
+       새 클릭 뒤 다른 상품 되풀이 요청은 클릭을 쓰지 않고 요청 기준 1건(클릭은 화면 상품 요청 몫 — 클릭 1번에 다른 상품+화면 상품을 15초 안 두 번 해도 4건).
+       다른 상품 요청의 «지나감» 기억·되풀이 판정은 클릭이 이미 화면 상품에 쓰였어도 15초 안 클릭이면 그 클릭 기준. 실패한 요청은 기억에서 뺀다.
+     · fetch(new Request(url, {body: FormData})) — 사본의 Content-Type 이 multipart 면 formData() 로 읽는다(원래 요청은 그대로·기다리지 않음).
+       XHR·fetch 에 FormData 를 바로 넘기는 경우는 예전부터 bodyStr 로 읽는다.
    되돌리기 = rollback_kr.py(스크립트태그 src 를 직전 커밋으로, POST 확인 → 옛 태그 DELETE). */
 (function () {
-  if (window.__fitableCartFix) return; window.__fitableCartFix = 3;
+  if (window.__fitableCartFix) return; window.__fitableCartFix = 4;
   var WIN_MS = 15000;
   var att = null;      /* 담기 시도 {id, ts, kind:'cart'|'buy'|'pay', used} */
 
@@ -156,16 +164,26 @@
   var recent = [];   /* 최근 15초 안에 센 요청 {key, ts, c} — 같은 상품번호·품목코드 집합의 되풀이 요청만 묶는다 */
   function claim(s) {
     var r = parseBody(s); if (!r || r.f.command !== 'add' || r.f.is_direct_buy === 'T') return null;
-    var t = Date.now(), a = att, key = reqKey(r), other = otherProd(r);
+    var t = Date.now(), a = att, key = reqKey(r), other = otherProd(r), so = null;   /* so = 이 요청을 seen 에 적은 클릭 시도(실패하면 지운다) */
     for (var i = recent.length - 1; i >= 0; i--) if (t - recent[i].ts >= WIN_MS) recent.splice(i, 1);
     var fresh = !!(a && t - a.ts < WIN_MS);
     if (fresh && a.kind !== 'cart' && !other) return null;               /* 바로구매·간편결제 클릭 뒤 화면 상품 담기 통신 */
-    if (fresh && a.kind === 'cart' && !a.used && !other) a.used = true;  /* 「장바구니」 클릭 시도에 붙인다 */
+    var freshCart = !!(fresh && a.kind === 'cart'), openCart = freshCart && !a.used;   /* 다른 상품 요청은 클릭을 쓰지 않으므로 freshCart 만, 화면 상품 요청은 openCart */
+    if (openCart && !other) a.used = true;                              /* 「장바구니」 클릭 시도에 붙인다 */
     else {
-      for (var j = 0; j < recent.length; j++) if (recent[j].key === key) return null;   /* 15초 안 같은 요청 되풀이 = 같은 담기 */
-      a = { id: rid('kra_r'), ts: t, kind: 'cart', used: true };        /* 클릭을 못 본 담기·다른 상품 — 요청 기준 1건(열린 클릭 시도는 그대로) */
+      var dup = false; for (var j = 0; j < recent.length; j++) if (recent[j].key === key) dup = true;
+      /* v4: 새 클릭 시도를 «15초 안 같은 요청» 묶기보다 먼저 본다. 같은 요청이 다시 왔어도 그 사이 새 「장바구니」 클릭이 있었으면
+         그 클릭의 담기다(화면과 다른 상품을 15초 안에 두 번 클릭 = 2건). 단 그 클릭을 이미 같은 요청이 한 번 거쳐 갔으면(seen, 지나간 요청 전부) 되풀이로 본다. */
+      if (dup) {
+        if (!other || !freshCart || (a.seen && a.seen[key])) return null;   /* 화면 상품 되풀이(열린 클릭 없음)·새 클릭 없음·이 클릭을 이미 지나간 요청 = 되풀이 */
+        so = a; (a.seen || (a.seen = {}))[key] = 1; a = { id: rid('kra_r'), ts: t, kind: 'cart', used: true };   /* 다른 상품 되풀이 = 클릭은 화면 상품 몫으로 남기고 요청 기준 1건 */
+      }
+      else {
+        if (freshCart && other) { so = a; (a.seen || (a.seen = {}))[key] = 1; }      /* 다른 상품 요청이 클릭 시도를 지나감 — 화면 상품 요청 몫으로 남겨 둔다(지나간 요청 전부 기억) */
+        a = { id: rid('kra_r'), ts: t, kind: 'cart', used: true };      /* 클릭을 못 본 담기·다른 상품 — 요청 기준 1건(열린 클릭 시도는 그대로) */
+      }
     }
-    var c = { a: a, r: r, key: key, fin: false };
+    var c = { a: a, r: r, key: key, so: so, fin: false };
     recent.push({ key: key, ts: t, c: c }); if (recent.length > 50) recent.shift();
     return c;
   }
@@ -173,6 +191,7 @@
     if (!c || c.fin) return; c.fin = true;                 /* 완료 처리는 요청마다 한 번만 */
     if (!ok) {                                             /* 실패 응답 = 안 보냄, 다시 담으면 그때 1건 */
       c.a.used = false;
+      if (c.so && c.so.seen) delete c.so.seen[c.key];     /* 실패한 요청은 «클릭을 지나갔다»에서도 뺀다 → 같은 클릭에서 다시 담으면 1건 */
       for (var i = recent.length - 1; i >= 0; i--) if (recent[i].c === c) recent.splice(i, 1);
       return;
     }
@@ -241,7 +260,11 @@
           if (BASKET.test(u)) {
             if (init && init.body != null) c = claim(bodyStr(init.body));            /* init.body 가 Request 본문보다 우선(fetch 규칙) */
             else if (isReq && !input.bodyUsed) {                                     /* Request 본문은 사본으로 읽는다 — 원래 요청은 그대로·기다리지 않고 보낸다 */
-              var cl = input.clone(); pend = cl.text().then(function (t) { return claim(t); }, function () { return null; });
+              var cl = input.clone(), ct = '';
+              try { ct = String((cl.headers && cl.headers.get('content-type')) || ''); } catch (e) {}
+              /* multipart(FormData 본문) = 사본을 formData() 로 읽어 같은 글자 꼴로 바꾼다. 그 밖은 text() */
+              var rd = (/multipart\/form-data/i.test(ct) && typeof cl.formData === 'function') ? cl.formData().then(bodyStr) : cl.text();
+              pend = rd.then(function (t) { return claim(t); }, function () { return null; });
             }
           }
         } catch (e) {}
