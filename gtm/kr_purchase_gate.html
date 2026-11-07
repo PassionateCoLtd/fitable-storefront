@@ -1,0 +1,185 @@
+<script>
+/* FKR | 구매 금액·중복 확인 (2026-11-01, 대표 승인: 한국 GA4 매출 = 실결제)
+   야무진초아 purchase2(주문완료 화면)를 받아 금액을 카페24 주문 데이터·화면으로 «다시» 계산하고,
+   같은 주문은 한 번만 'fit_purchase' 로 넘긴다 → GA4 구매 태그(39)는 fit_purchase 에서만 발화.
+   · 금액 순서(일본 v54 와 같음): ①payed_amount ②화면 «총 결제금액» ③뜻이 애매한 총액 필드(0 은 안 믿음) ④상품합계
+     «값 없음»과 «0원»을 가른다(적립금 전액 = 0 그대로). ①이 0 인데 화면이 0 보다 크면 화면(입금 전 대비).
+     상한만 둔다: 상품합계 3배 초과 = 엉뚱한 필드로 보고 버린다.
+   · transaction_id·items·payment_type 은 예전 그대로(주문번호 = 카페24 order_id).
+   · 같은 주문 다시 열기(새로고침·뒤로가기): 브라우저 목록(최근 500건·90일)으로 막는다.
+     두 탭 동시: 주문번호 잠금(Web Locks, 없으면 localStorage 짧은 잠금). www↔m 은 GA4 transaction_id 중복 제거에 맡긴다.
+   v7(2026-11-01 리뷰 수정):
+    · «보내는 중(sending)»은 2분만 유효. 2분 안에 «보냄(sent)»이 안 되면 다음에 화면을 열 때 다시 보낸다.
+      «보냄»은 GTM eventCallback(우리 컨테이너 GTM-P99J83LM 이 fit_purchase 태그 처리를 끝냈다는 신호)을 받은 뒤에만 적는다.
+      보내다 예외가 나면 «보내는 중»을 지운다.
+    · 웹 구매는 주문 뒤 12시간 안에만 보낸다(서버 보충 전송 ga4_mp_purchase_backfill.py 가 자사결제 주문을 24시간 뒤부터 보내므로 안 겹침).
+      주문 시각 = 카페24 주문 데이터 order_date → 화면 «주문일시» → 주문번호 날짜(YYYYMMDD-, v8: 그날 23:59:59 로 봄).
+      셋 다 못 읽으면 예전처럼 보낸다.
+    · 화면이 닫힐 때(pagehide·hidden) 바로 보내는 경로도 주문번호 표(fkr_pclaim_<주문번호>, 소유자·시각)를 적고 다시 읽어 확인한 뒤에만 보낸다.
+    v8(2026-11-01 2회차 리뷰 수정):
+     · 주문번호 날짜만 읽힐 때 «한국시간 같은 날만» 대신 «그날 23:59:59 주문»으로 보고 12시간(= 다음 날 11:59:59 까지). 자정에 막히던 문제 없앰.
+       짝: 서버 보충 전송은 자사결제 주문을 «24시간 뒤 + 주문일 다음 날 12:00 이후»에만 보낸다(11/2 수정) → 겹치지 않음.
+     · 12시간 제한은 화면을 연 순간과 실제로 보내기 직전에 두 번 본다(잠금 대기로 경계를 넘는 경우 — 3회차 재확인).
+     · 12시간 제한은 0원 주문에도 그대로 건다(서버는 실결제가 아니라 상품구매금액으로 보내므로 0원 주문도 서버가 보낸다 — 3회차 리뷰).
+     · 알고 둔 한계: 화면 닫힘(pagehide) 경로의 두 탭 동시 처리는 완전한 원자성이 없다(같은 손님이면 GA4 가 transaction_id 로 중복을 거른다). */
+(function () {
+  /* GTM 컴파일러(ES5)는 블록 안 함수 선언을 거부한다 → 본문을 함수 하나로 감싸고 try 는 바깥에서 */
+  try { run(); } catch (e) {}
+  function run() {
+    var CUR = 'KRW', K_SENT = 'fkr_purchase_sent', KEEP_N = 500, KEEP_MS = 90 * 864e5;
+    var SENDING_MS = 2 * 60e3, WEB_MAX_AGE_MS = 12 * 36e5, KST_MS = 9 * 36e5;
+    var OUR_GTM = 'GTM-P99J83LM';                              /* 이 태그가 들어 있는 컨테이너(내장 변수 Container ID 는 꺼져 있음) */
+    var E = (window.CAFE24 && window.CAFE24.FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA) || window.EC_FRONT_EXTERNAL_SCRIPT_VARIABLE_DATA || {};
+    var oid = String({{GA4 | DL | transaction_id}} || E.order_id || '');
+    if (!oid || oid === 'undefined') return;                 /* 주문번호 없으면 보내지 않는다 */
+    var items = {{GA4 | DL | items}};
+    if (!items || !items.length) items = [];
+    var pt = {{GA4 | DL | payment_type}};
+    // Only read the result's payment-method label, never arbitrary customer fields.
+    if (!pt) {
+      var pmEl = document.querySelector('.ftbl-paybox .pm .vl');
+      var pmText = pmEl ? pmEl.textContent : '';
+      if (!pmText) {
+        var pmMatch = ((document.body && document.body.innerText) || '').match(/결제\s*수단\s*[:：]?\s*([^\n]+)/);
+        pmText = pmMatch ? pmMatch[1] : '';
+      }
+      if (/신용카드|체크카드|카드/.test(pmText)) pt = 'card';
+      else if (/네이버/.test(pmText)) pt = 'naverpay';
+      else if (/카카오/.test(pmText)) pt = 'kakaopay';
+      else if (/가상계좌/.test(pmText)) pt = 'icash';
+      else if (/무통장/.test(pmText)) pt = 'cash';
+      else if (/계좌이체/.test(pmText)) pt = 'tcash';
+      else if (/휴대폰/.test(pmText)) pt = 'cell';
+    }
+    // Bank deposits are purchases only after the server confirms payment.
+    if (/^(cash|icash)$/.test(String(pt)) || /무통장|가상계좌/.test(String(pt)) || E.paid === 'F') return;
+
+
+    function amt(v) {
+      if (v === undefined || v === null) return null;
+      var s = String(v).replace(/[\s,]/g, '').replace(/^₩/, '').replace(/(?:원|KRW)$/i, '');
+      if (s === '') return null;
+      var n = Number(s); return (isFinite(n) && n >= 0) ? n : null;
+    }
+    /* 상품합계: 카페24 주문 데이터(상품 단가×수량)로 직접, 없으면 items */
+    var itemsTotal = 0, op = E.order_product;
+    if (op && op.length) { for (var i = 0; i < op.length; i++) itemsTotal += (Number(op[i].product_price) || 0) * (Number(op[i].quantity) || 0); }
+    else { for (var j = 0; j < items.length; j++) itemsTotal += (Number(items[j].price) || 0) * (Number(items[j].quantity) || 0); }
+    function fits(n) { return n !== null && !(itemsTotal > 0 && n > itemsTotal * 3); }
+    var bt = (document.body && document.body.innerText) || '';
+    /* 주문 시각(한국시간) → 12시간 넘은 주문은 웹에서 보내지 않는다(서버 보충 전송 몫) */
+    function kst(y, mo, d, h, mi, se) { return Date.UTC(y, mo - 1, d, h || 0, mi || 0, se || 0) - KST_MS; }
+    function parseDT(v) {
+      var m = String(v || '').match(/(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+      return m ? kst(+m[1], +m[2], +m[3], +m[4], +m[5], +(m[6] || 0)) : null;
+    }
+    var odAt = null; try { odAt = parseDT(E.order_date); } catch (e) {}
+    if (odAt === null) { var om = bt.match(/주문\s*일시[^0-9]{0,12}(\d{4}[-.\/]\d{1,2}[-.\/]\d{1,2}[ T]+\d{1,2}:\d{2}(?::\d{2})?)/); if (om) odAt = parseDT(om[1]); }
+    var odDay = null, dm = oid.match(/^(\d{4})(\d{2})(\d{2})-/); if (dm) odDay = kst(+dm[1], +dm[2], +dm[3]);
+    function tooOld() {   /* 화면을 연 순간과 실제로 보내기 직전(잠금 대기·화면 닫힘 뒤) 두 번 본다 */
+      var nowMs = Date.now();
+      if (odAt !== null) return nowMs - odAt > WEB_MAX_AGE_MS;
+      if (odDay !== null) return nowMs - (odDay + 864e5 - 1000) > WEB_MAX_AGE_MS;   /* 날짜만 읽힘: 그날 23:59:59 주문으로 보고 12시간 = 다음 날 11:59:59 까지 */
+      return false;
+    }
+    if (tooOld()) return;
+    var scr = null, vm = bt.match(/총\s*결제\s*금액[^0-9]{0,12}([0-9][0-9,]*)/) || bt.match(/최종\s*결제\s*금액[^0-9]{0,12}([0-9][0-9,]*)/);
+    if (vm) { scr = amt(vm[1]); if (!fits(scr)) scr = null; }
+    var val = null, a1 = null;
+    try { a1 = amt(E.payed_amount); } catch (e) {}
+    if (a1 === 0 && scr !== null && scr > 0) return; // amount due is not paid revenue
+    if (fits(a1)) val = a1;
+    if (val === null && scr !== null) val = scr;
+    if (val === null) {
+      var PAY_KEYS = ['payment_amount', 'total_payment_amount', 'actual_payment_amount', 'settle_price', 'order_amount',
+                      'total_price', 'pay_amount', 'order_price_amount', 'total_order_amount'];
+      for (var k = 0; k < PAY_KEYS.length && val === null; k++) {
+        var a2 = null; try { a2 = amt(E[PAY_KEYS[k]]); } catch (e) {}
+        if (a2 !== null && a2 > 0 && fits(a2)) val = a2;
+      }
+    }
+    if (val === null && itemsTotal > 0) val = itemsTotal;      /* 할인 전 상품합계 — 없는 것보다 낫다 */
+
+    /* 보낸 주문 목록 */
+    function readSent() {
+      var raw = []; try { raw = JSON.parse(localStorage.getItem(K_SENT) || '[]') || []; } catch (e) { raw = []; }
+      var now = Date.now(), out = [];
+      for (var x = 0; x < raw.length; x++) { var y = raw[x]; if (!y || !y.id) continue;
+        var age = now - (y.ts || 0); if (y.st === 'sending' ? age < SENDING_MS : age < KEEP_MS) out.push(y); }   /* «보내는 중»은 2분 지나면 없는 것으로 */
+      return out.slice(-KEEP_N);
+    }
+    function writeSent(l) { try { localStorage.setItem(K_SENT, JSON.stringify(l.slice(-KEEP_N))); } catch (e) {} }
+    function sentHas(l, id) { for (var x = 0; x < l.length; x++) if (l[x].id === id) return true; return false; }
+    if (sentHas(readSent(), oid)) return;
+
+    var ec = { transaction_id: oid, currency: CUR, items: items };
+    if (val !== null) ec.value = val;                          /* 0원도 보낸다. 못 구하면 키를 안 넣는다 */
+    if (pt) ec.payment_type = pt;
+    /* 주문번호 표: 잠금 경로·화면 닫힘 경로 모두 여기를 거친다. 다른 탭 표가 2분 안이면 양보. 적고 다시 읽어 내 것일 때만 */
+    var me = Math.random().toString(36).slice(2) + Date.now().toString(36), K_CLAIM = 'fkr_pclaim_' + oid;
+    function readClaim() { try { return JSON.parse(localStorage.getItem(K_CLAIM) || 'null'); } catch (e) { return null; } }
+    function claimOrder() {
+      var now = Date.now(), cur = readClaim();
+      if (cur && cur.o && cur.o !== me && now - (cur.t || 0) < SENDING_MS) return false;
+      try { localStorage.setItem(K_CLAIM, JSON.stringify({ o: me, t: now })); } catch (e) { return true; }   /* 저장소가 막힌 브라우저 = 예전처럼 보낸다 */
+      var c2 = readClaim(); return !!(c2 && c2.o === me);
+    }
+    function releaseClaim() { try { var c3 = readClaim(); if (c3 && c3.o === me) localStorage.removeItem(K_CLAIM); } catch (e) {} }
+    function dropMine() {                                      /* 예외 → 내 «보내는 중» 줄과 표를 지운다 → 다음 방문 때 다시 */
+      try { var l = readSent(), k = []; for (var z = 0; z < l.length; z++) if (!(l[z].id === oid && l[z].o === me)) k.push(l[z]); writeSent(k); } catch (e) {}
+      releaseClaim();
+    }
+    function markSent() {
+      var l2 = readSent(), hit = false;
+      for (var z = 0; z < l2.length; z++) if (l2[z].id === oid) { l2[z].st = 'sent'; l2[z].ts = Date.now(); hit = true; }
+      if (!hit) l2.push({ id: oid, ts: Date.now(), st: 'sent' });
+      writeSent(l2); releaseClaim();
+    }
+    var once = false;
+    function job() {
+      if (once) return; once = true;
+      if (tooOld()) return;                                    /* 잠금 대기·닫힘 경로로 늦게 온 경우 — 12시간이 지났으면 서버 몫 */
+      if (sentHas(readSent(), oid)) return;                    /* 다른 탭이 보냈거나 보내는 중(2분 안) */
+      if (!claimOrder()) return;
+      try {
+        var l = readSent(); if (sentHas(l, oid)) { releaseClaim(); return; }
+        l.push({ id: oid, ts: Date.now(), st: 'sending', o: me }); writeSent(l);
+        var acked = false;
+        var dl = window.dataLayer = window.dataLayer || [];
+        dl.push({ ecommerce: null });
+        dl.push({ event: 'fit_purchase', ecommerce: ec, eventCallback: function (cid) {
+          try {
+            if (acked) return;
+            if (cid !== undefined && cid !== null && cid !== '' && String(cid) !== OUR_GTM) return;   /* 다른 컨테이너가 부른 것은 무시 */
+            acked = true; markSent();
+          } catch (e) {}
+        } });
+      } catch (e) { dropMine(); }
+    }
+    function orderLock(name, fn) {
+      try { if (navigator.locks && navigator.locks.request) { navigator.locks.request(name, function () { try { fn(); } catch (e) {} }); return; } } catch (e) {}
+      var me = Math.random().toString(36).slice(2) + Date.now().toString(36), tries = 0;
+      function retry() { if (++tries <= 3) setTimeout(attempt, 3100); }
+      function attempt() {
+        var cur = null, now = Date.now();
+        try { cur = JSON.parse(localStorage.getItem(name) || 'null'); } catch (e) { cur = null; }
+        if (cur && cur.o !== me && now - (cur.t || 0) < 3000) { retry(); return; }
+        try { localStorage.setItem(name, JSON.stringify({ o: me, t: now })); } catch (e) { try { fn(); } catch (e2) {} return; }
+        setTimeout(function () {
+          var c2 = null; try { c2 = JSON.parse(localStorage.getItem(name) || 'null'); } catch (e) {}
+          if (!c2 || c2.o !== me) { retry(); return; }
+          try { fn(); } catch (e) {}
+          try { localStorage.removeItem(name); } catch (e) {}
+        }, 60 + Math.floor(Math.random() * 60));
+      }
+      attempt();
+    }
+    if (document.visibilityState === 'hidden') job(); else orderLock('fkr_plock_' + oid, job);
+    /* 알고 둔 한계: 닫힘 경로는 잠금 없이 표만 거친다 → 두 탭이 같은 순간 닫히면 드물게 2번 나갈 수 있다(같은 손님이면 GA4 가 transaction_id 로 거른다) */
+    if (!once) {
+      window.addEventListener('pagehide', function () { try { job(); } catch (e) {} }, true);
+      document.addEventListener('visibilitychange', function () { try { if (document.visibilityState === 'hidden') job(); } catch (e) {} }, true);
+    }
+  }
+})();
+</script>

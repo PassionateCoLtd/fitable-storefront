@@ -1,0 +1,9 @@
+2026-11-07 GTM-P99J83LM version 11, tag 53 exact published source
+The source preserves historical version comments. Current behavior overrides older comments:
+- cash/icash or explicit paid=F: no browser purchase; wait for server paid confirmation
+- payed_amount=0 but screen amount>0: no browser purchase
+- missing payment_type: parse payment-method label
+- trigger 25 begin_checkout2 is restricted to ^/order/orderform(?:\.html)?/?$
+- server new purchases use collected_net_v1; zero collected value remains a purchase when merchandise value>0
+Run node tests/kr_conversion.test.cjs and node --test tests/payment_behavior.test.cjs
+Limitations: no actual paid order/refund was created; browser claims and raw data reconciliation are distinct checks.
