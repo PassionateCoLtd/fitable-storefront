@@ -1,4 +1,4 @@
-/* cart_fix.js v4 (2026-11-01) — 한국몰 상세 화면 «담기 1번 = add_to_cart 1건».
+/* cart_fix.js v5 (2026-11-07) — 한국몰 상세 화면 «담기 1번 = add_to_cart 1건».
    v1(2026-06-05)은 «장바구니» 클릭 순간 gtag('event','add_to_cart') 를 직접 쐈고, GTM 태그 33 도
    야무진초아 add_to_cart2(담기 통신 응답) 로 한 번 더 쏴서 담기 1번에 2건이 나갔다(11/1 실측).
    두 경로 다 수량·금액이 틀렸다: v1 은 숨은 기본 수량칸(늘 1)·추가구성상품 빠짐,
@@ -9,7 +9,7 @@
      · 바로구매·네이버페이·카카오페이 클릭 뒤의 담기 통신은 담기로 세지 않는다(is_direct_buy=T 도 제외).
      · 응답이 실패(result≠0)면 안 보낸다. 품목 단가를 1:1 로 못 맞추면 금액(value)을 비운다(틀린 금액보다 빈칸).
      · 전송은 dataLayer 'fit_add_to_cart' → 우리 GTM(GTM-P99J83LM) 태그 33 이 GA4 로 보낸다(사내 접속 차단이 걸리게).
-   begin_checkout(바로구매 클릭)은 v1 과 똑같이 둔다(이번 수정 범위 밖).
+   v5: 바로구매 클릭은 buy_click으로 분리. begin_checkout은 실제 주문서 진입만 기록.
    v3(2026-11-01 리뷰 수정):
      · 옵션 없는 추가구성상품(예: 31 스틸 푸쉬업바)은 단가표가 없다 → 요청 품목코드 = add_option_data[상품].item_code 일 때만 product_sale_price.
      · 클릭 없는 담기 요청은 «15초 안 + 상품번호·품목코드 집합이 같을 때»만 하나로 묶는다(일본 v54 와 같은 규칙).
@@ -28,29 +28,16 @@
        XHR·fetch 에 FormData 를 바로 넘기는 경우는 예전부터 bodyStr 로 읽는다.
    되돌리기 = rollback_kr.py(스크립트태그 src 를 직전 커밋으로, POST 확인 → 옛 태그 DELETE). */
 (function () {
-  if (window.__fitableCartFix) return; window.__fitableCartFix = 4;
+  if (window.__fitableCartFix) return; window.__fitableCartFix = 5;
   var WIN_MS = 15000;
   var att = null;      /* 담기 시도 {id, ts, kind:'cart'|'buy'|'pay', used} */
 
-  /* ── v1 그대로: 바로구매 클릭 begin_checkout ── */
-  function lastEcom() {
-    try { var dl = window.dataLayer || [];
-      for (var i = dl.length - 1; i >= 0; i--) { var e = dl[i];
-        if (e && e.ecommerce && e.ecommerce.items && e.ecommerce.items.length) return e.ecommerce; } } catch (e) {}
-    return null;
-  }
-  function qty() {
-    try { var q = document.querySelector('input[name="quantity"],#quantity,.quantity input,input.quantity');
-      var n = q ? parseInt((q.value || '1').replace(/[^0-9]/g, ''), 10) : 1; return n > 0 ? n : 1; } catch (e) { return 1; }
-  }
+  /* 클릭은 성공한 결제 시작이 아니다. 금액/수량을 클릭에서 추정하지 않는다. */
   function fireBegin() {
     if (typeof window.gtag !== 'function') return false;
-    var ec = lastEcom(); var q = qty();
-    var items = (ec && ec.items) ? ec.items.map(function (it) {
-      return { item_id: it.item_id, item_name: it.item_name, price: (it.price || ec.value), quantity: q }; }) : [];
-    var val = (ec && ec.value ? ec.value : 0) * q;
-    window.gtag('event', 'begin_checkout', { currency: (ec && ec.currency) || 'KRW', value: val, items: items,
-      send_to: 'G-V7D156FCFX', transport_type: 'beacon' });
+    window.gtag('event', 'buy_click', { send_to: 'G-V7D156FCFX',
+      transport_type: 'beacon', tracking_version: 'kr_behavior_v2',
+      product_id: typeof window.iProductNo !== 'undefined' ? String(window.iProductNo) : '' });
     return true;
   }
 
